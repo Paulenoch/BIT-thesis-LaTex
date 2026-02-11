@@ -1,0 +1,414 @@
+\chapter{ViT+Mamba策略网络与训练方法}
+
+本章详细介绍端到端策略网络的架构设计与训练方法。策略采用"空间编码+时序聚合+控制头"的三段式结构：视觉编码器（ViT）提取空间表征，时序模块（Mamba）融合历史信息，控制头输出速度指令。训练采用行为克隆（BC）范式，以三阶段课程学习策略平衡模仿精度与控制平滑性。本章同时给出对比基线的配置与DAgger数据增强的扩展方案。
+
+\section{总体架构}
+
+\subsection{三层系统架构}
+
+本文的端到端策略网络如图~\ref{fig:pipeline_arch}所示，由感知层、策略层和执行层三部分组成：
+
+\begin{figure}[htbp]
+\centering
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit,backgrounds,shadows}
+\begin{tikzpicture}[
+  node distance=0.6cm and 0.9cm,
+  every node/.style={font=\small},
+  block/.style={rectangle, draw=black!60, fill=white, rounded corners=3pt, text width=2.0cm, align=center, minimum height=1.1cm, drop shadow={opacity=0.15}},
+  racs/.style={block, draw=red!70, dashed, line width=0.8pt, fill=red!5},
+  container/.style={draw, inner sep=0.25cm, rounded corners=5pt, dashed},
+  arrow/.style={-{Stealth[scale=1.1]}, thick, color=black!75},
+]
+\node[block, fill=blue!10] (depth) {深度图像\\$D_t$ ($60{\times}90$)};
+\node[block, right=of depth, fill=orange!10] (encoder) {ViT 编码器\\(512维特征)};
+\node[block, right=0.5cm of encoder, fill=orange!18] (mamba) {Mamba 模块\\(4层 S6)};
+\node[racs, right=0.7cm of mamba] (racs) {\textbf{RACS}\\(速率限制)};
+\node[block, right=of racs, fill=green!10] (controller) {低层控制器};
+\node[block, right=0.5cm of controller, fill=green!10] (sim) {仿真器/\\飞行器};
+
+\draw[arrow] (depth) -- (encoder);
+\draw[arrow] (encoder) -- (mamba);
+\draw[arrow] (mamba) -- node[above, font=\scriptsize, text=red!70] {$\mathbf{v}_{\text{raw}}$} (racs);
+\draw[arrow] (racs) -- node[above, font=\scriptsize] {$\mathbf{v}_{\text{cmd}}$} (controller);
+\draw[arrow] (controller) -- (sim);
+\draw[thick, color=black!75] (sim.south) |- ++(0, -0.55) -| (depth.south);
+\draw[arrow] ($(depth.south) + (0, -0.55)$) -- (depth.south);
+\node[font=\scriptsize, color=black!60] at ($(sim.south) + (-2.8, -0.35)$) {状态反馈};
+
+\begin{pgfonlayer}{background}
+  \node[container, draw=blue!40, fill=blue!3, fit=(depth), label={[blue!60, font=\bfseries\scriptsize]north:感知层}] {};
+  \node[container, draw=orange!50, fill=orange!3, fit=(encoder) (mamba) (racs), label={[orange!70, font=\bfseries\scriptsize]north:端到端策略网络}] {};
+  \node[container, draw=green!50, fill=green!3, fit=(controller) (sim), label={[green!60!black, font=\bfseries\scriptsize]north:执行层}] {};
+\end{pgfonlayer}
+\end{tikzpicture}
+\caption{端到端导航管线架构总览}
+\label{fig:pipeline_arch}
+\end{figure}
+
+\begin{itemize}
+  \item \textbf{感知层}：提供单目深度图像$D_t$与轻量状态$s_t$；
+  \item \textbf{策略层}：ViT编码器提取空间特征，Mamba模块进行时序聚合，控制头输出速度指令；RACS模块（可选）在部署侧施加速率限制；
+  \item \textbf{执行层}：低层控制器将速度指令转化为电机控制量，由仿真器或真实飞行器执行。
+\end{itemize}
+
+
+\section{视觉编码器：轻量化ViT}
+
+视觉编码器负责将深度图像$D_t$压缩为固定维度的空间特征向量。本文采用轻量化的2-stage ViT架构，在保持足够表征能力的同时满足高速飞行的实时性要求。
+
+\subsection{架构设计}
+
+2-stage ViT的编码过程如下：
+\begin{enumerate}
+  \item \textbf{第一阶段}：使用Patch Size $7 \times 7$、Stride 4的卷积嵌入层，将$60 \times 90$的深度图像分割为$16 \times 24$的patch token序列，通道数为32；经过Transformer编码块处理后输出空间特征图；
+  \item \textbf{第二阶段}：使用Patch Size $3 \times 3$、Stride 2的卷积嵌入层进一步下采样至$8 \times 12$，通道数升至64；经过Transformer编码块后将特征池化为512维向量。
+\end{enumerate}
+
+表~\ref{tab:vit_tensor}给出了编码过程中各阶段的张量尺寸变化。
+
+\begin{table}[htbp]
+\centering
+\caption{ViT编码器各阶段张量尺寸}
+\label{tab:vit_tensor}
+\zihao{5}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{阶段} & \textbf{输入尺寸} & \textbf{Patch/Stride} & \textbf{输出尺寸} & \textbf{通道数} \\
+\midrule
+输入深度图 & $60 \times 90 \times 1$ & -- & -- & 1 \\
+Stage 1 嵌入 & $60 \times 90$ & $7{\times}7$ / Stride 4 & $16 \times 24$ & 32 \\
+Stage 1 编码 & $16 \times 24 \times 32$ & -- & $16 \times 24 \times 32$ & 32 \\
+Stage 2 嵌入 & $16 \times 24 \times 32$ & $3{\times}3$ / Stride 2 & $8 \times 12 \times 64$ & 64 \\
+Stage 2 编码 & $8 \times 12 \times 64$ & -- & $8 \times 12 \times 64$ & 64 \\
+全局池化 & $8 \times 12 \times 64$ & -- & 512 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+该轻量化设计将$60 \times 90$的深度图高效压缩为512维向量，为后续时序聚合模块提供紧凑的空间表征。
+
+
+\section{时序聚合模块：Temporal Mamba}
+
+\subsection{选择性状态空间模型}
+
+时序聚合模块采用Mamba\cite{Gu2023Mamba}——一种基于选择性状态空间模型（Selective State Space Model）的序列建模架构。Mamba在经典连续时间线性状态空间模型（式\ref{eq:ssm}）的基础上，引入了选择性机制：令参数矩阵$\mathbf{B}$、$\mathbf{C}$与离散化步长$\Delta$依赖于输入内容，使模型能够根据当前输入动态调整状态更新幅度，对关键信息（如障碍距离突变、急转弯前的预兆）进行自适应聚合。
+
+离散化后的状态更新方程为：
+\begin{equation}
+  \mathbf{h}_t = \bar{\mathbf{A}} \mathbf{h}_{t-1} + \bar{\mathbf{B}} \mathbf{x}_t, \quad
+  \mathbf{y}_t = \mathbf{C}_t \mathbf{h}_t
+  \label{eq:mamba_discrete}
+\end{equation}
+其中$\bar{\mathbf{A}}, \bar{\mathbf{B}}$为经零阶保持（Zero-Order Hold）离散化后的参数矩阵，$\mathbf{C}_t$随输入$\mathbf{x}_t$动态变化。
+
+\subsection{模块配置}
+
+本文的Temporal Mamba模块包含4层Mamba块，具体配置如表~\ref{tab:mamba_config}所示。
+
+\begin{table}[htbp]
+\centering
+\caption{Temporal Mamba模块配置}
+\label{tab:mamba_config}
+\zihao{5}
+\begin{tabular}{lc}
+\toprule
+\textbf{参数} & \textbf{数值} \\
+\midrule
+层数 & 4 \\
+模型维度 $d_{\text{model}}$ & 192 \\
+状态维度 $d_{\text{state}}$ & 64 \\
+卷积核大小 $d_{\text{conv}}$ & 4 \\
+扩展因子 & 4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Mamba模块的输入为ViT编码的视觉特征与轻量状态的拼接向量（经线性投影至$d_{\text{model}}=192$维），通过4层Mamba块进行时序聚合后输出时序特征表征。
+
+\subsection{Batch训练与Streaming推理的双模式接口}
+
+Mamba同时支持两种前向计算模式，这一特性对训练效率与部署一致性至关重要：
+
+\textbf{Batch模式（训练阶段）：}接收完整序列$\{\mathbf{x}_1, \ldots, \mathbf{x}_T\}$，利用并行扫描算法（Parallel Scan）高效计算所有时间步的输出，复杂度为$O(T)$。
+
+\textbf{Streaming模式（部署阶段）：}每个控制周期仅输入当前时刻的观测$\mathbf{x}_t$，通过递推更新内部状态$\mathbf{h}_t$（式~\ref{eq:mamba_discrete}）得到当前输出。该模式通过\texttt{inference\_params}对象显式管理内部状态的传播与更新。
+
+算法~\ref{alg:forward_modes}对比了两种模式的关键差异。
+
+\begin{algorithm}[htbp]
+\caption{Mamba的Batch训练与Streaming推理模式}
+\label{alg:forward_modes}
+\begin{algorithmic}[1]
+\State \textbf{// Batch模式（训练）}
+\Require 序列 $\mathbf{X} = [\mathbf{x}_1, \ldots, \mathbf{x}_T]$，序列长度 $T > 1$
+\State $\mathbf{Y} = \text{MambaParallelScan}(\mathbf{X})$ \Comment{并行计算所有时间步}
+\State \Return $\mathbf{Y} = [\mathbf{y}_1, \ldots, \mathbf{y}_T]$
+\State
+\State \textbf{// Streaming模式（推理）}
+\Require 当前观测 $\mathbf{x}_t$，推理参数 \texttt{inference\_params}
+\State $\mathbf{h}_{t-1} \leftarrow \texttt{inference\_params.state}$ \Comment{读取上一步状态}
+\State $\mathbf{h}_t = \bar{\mathbf{A}} \mathbf{h}_{t-1} + \bar{\mathbf{B}}_t \mathbf{x}_t$ \Comment{递推更新}
+\State $\mathbf{y}_t = \mathbf{C}_t \mathbf{h}_t$ \Comment{计算输出}
+\State $\texttt{inference\_params.state} \leftarrow \mathbf{h}_t$ \Comment{保存当前状态}
+\State $\texttt{inference\_params.seqlen\_offset} \mathrel{+}= 1$ \Comment{更新序列偏移}
+\State \Return $\mathbf{y}_t$
+\end{algorithmic}
+\end{algorithm}
+
+两种模式的数学等价性是流式部署一致性的基础——第5章将系统分析当该等价性被工程实现破坏时的后果。
+
+
+\section{特征融合与控制头}
+
+ViT编码器输出的512维视觉特征$\mathbf{f}_{\text{vis}}$与轻量状态$s_t$（四元数+归一化目标速度，共5维）的辅助特征$\mathbf{f}_{\text{aux}}$通过拼接进行融合：
+\begin{equation}
+  \mathbf{f}_{\text{fused}} = [\mathbf{f}_{\text{vis}}; \mathbf{f}_{\text{aux}}]
+\end{equation}
+融合特征经线性投影至$d_{\text{model}}=192$维后输入Mamba时序模块。Mamba的输出经控制头（线性层）映射为3维速度指令$\mathbf{v}_{\text{raw}} = [v^x, v^y, v^z]$。
+
+ViT+Mamba策略网络的总参数量约为\textbf{3.50M}，在保持足够建模能力的同时具备机载部署的可行性。
+
+
+\section{训练目标与损失函数}
+
+\subsection{行为克隆监督损失}
+
+训练的主损失为速度跟踪误差，采用均方误差（MSE）：
+\begin{equation}
+  \mathcal{L}_{\text{BC}} = \frac{1}{T'} \sum_{t=t_{\text{burn}+1}}^{T} \|\mathbf{v}_t^{\text{pred}} - \mathbf{v}_t^{\text{expert}}\|_2^2
+  \label{eq:bc_loss}
+\end{equation}
+其中$T'$为有效序列长度（扣除burn-in步数$t_{\text{burn}}=20$），$\mathbf{v}_t^{\text{pred}}$为策略输出，$\mathbf{v}_t^{\text{expert}}$为专家速度指令。前20步作为burn-in阶段，仅用于预热时序模型的内部状态，不参与梯度计算。
+
+\subsection{指令抖动惩罚（Jerk Loss）}
+
+为在训练阶段就引导策略输出平滑的控制指令，本文引入jerk loss作为辅助损失：
+\begin{equation}
+  \mathcal{L}_{\text{jerk}} = \frac{1}{T'-1} \sum_{t=t_{\text{burn}+2}}^{T} \|\mathbf{v}_t^{\text{pred}} - \mathbf{v}_{t-1}^{\text{pred}}\|_2^2
+  \label{eq:jerk_loss}
+\end{equation}
+
+\subsection{三阶段课程学习策略}
+
+为平衡模仿精度与控制平滑性，本文采用三阶段课程学习策略调节jerk loss的权重$\lambda_{\text{jerk}}$：
+\begin{enumerate}
+  \item \textbf{第一阶段（0--30 epochs）}：仅优化$\mathcal{L}_{\text{BC}}$，$\lambda_{\text{jerk}} = 0$。此阶段让策略先学会基本的速度跟踪能力；
+  \item \textbf{第二阶段（30--70 epochs）}：线性增加$\lambda_{\text{jerk}}$，逐步引入平滑性约束；
+  \item \textbf{第三阶段（70--100 epochs）}：$\lambda_{\text{jerk}}$保持恒定，联合优化精度与平滑性。
+\end{enumerate}
+
+总训练损失为：
+\begin{equation}
+  \mathcal{L} = \mathcal{L}_{\text{BC}} + \lambda_{\text{jerk}} \cdot \mathcal{L}_{\text{jerk}}
+  \label{eq:total_loss}
+\end{equation}
+
+
+\section{训练实现细节}
+
+表~\ref{tab:train_config}给出了完整的训练超参数配置。
+
+\begin{table}[htbp]
+\centering
+\caption{策略网络训练超参数配置}
+\label{tab:train_config}
+\zihao{5}
+\begin{tabular}{lc}
+\toprule
+\textbf{参数} & \textbf{数值} \\
+\midrule
+\multicolumn{2}{l}{\textit{训练设置}} \\
+\quad 优化器 & AdamW \\
+\quad 学习率 & $1 \times 10^{-4}$（线性预热） \\
+\quad 权重衰减 & $1 \times 10^{-4}$ \\
+\quad 批大小 & 1（轨迹级） \\
+\quad 总训练轮数 & 100 epochs \\
+\quad 梯度裁剪 & 1.0 \\
+\quad 学习率预热 & 15 epochs \\
+\midrule
+\multicolumn{2}{l}{\textit{序列建模}} \\
+\quad 训练序列长度 & 150步 \\
+\quad Burn-in步数 & 20步 \\
+\quad 输入分辨率 & $60 \times 90$ \\
+\midrule
+\multicolumn{2}{l}{\textit{数据增强}} \\
+\quad 深度噪声 & 高斯噪声 $\sigma = 0.02$ \\
+\quad 亮度扰动 & $\pm 10\%$ 随机扰动 \\
+\midrule
+\multicolumn{2}{l}{\textit{Jerk Loss课程}} \\
+\quad 第一阶段 & 0--30 epochs，$\lambda_{\text{jerk}}=0$ \\
+\quad 第二阶段 & 30--70 epochs，$\lambda_{\text{jerk}}$线性增加 \\
+\quad 第三阶段 & 70--100 epochs，$\lambda_{\text{jerk}}$恒定 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+训练在单张NVIDIA RTX 4060 GPU上完成。数据以轨迹级为单位输入（batch size为1），每条轨迹截断为150步的序列。深度图输入经归一化（乘以缩放因子0.09）后送入网络。
+
+\section{基线设置与公平对比}
+
+\subsection{ViT+LSTM基线}
+
+为验证Mamba时序模块的有效性，本文设置ViT+LSTM作为主要对比基线。该基线使用与本文相同的ViT视觉编码器，时序模块替换为3层LSTM。基线配置的关键原则是：
+\begin{itemize}
+  \item 视觉编码器完全相同，确保空间表征能力一致；
+  \item LSTM的隐藏层维度与层数经调整以使参数量与ViT+Mamba相近；
+  \item 训练配置（优化器、学习率、损失函数、课程学习策略等）完全对齐。
+\end{itemize}
+通过上述设置，ViT+Mamba与ViT+LSTM之间的性能差异可归因于时序建模模块的差异，而非其他混淆因素。
+
+\subsection{方法对比列表}
+
+本文的实验评测包含以下三种配置：
+\begin{enumerate}
+  \item \textbf{ViT+LSTM（Baseline）}：ViT视觉编码 + 3层LSTM时序聚合；
+  \item \textbf{ViT+Mamba（Ours）}：ViT视觉编码 + 4层Mamba时序聚合；
+  \item \textbf{ViT+Mamba + RACS}：在ViT+Mamba基础上加入部署侧动态速率限制。
+\end{enumerate}
+
+
+\section{DAgger闭环数据增强：方法与实现}
+
+\subsection{动机：闭环分布偏移与DAgger框架}
+
+行为克隆（BC）的训练数据来自专家策略所诱导的状态分布$d_{\pi^*}$。然而，学生策略$\pi_\theta$在闭环部署时由于自身误差会偏离专家分布，导致实际访问的状态与训练分布不匹配——即闭环分布偏移（covariate shift）。该偏移会随时间步累积，可能导致策略逐渐发散。在高速避障场景下，这一问题尤为突出：更高的飞行速度意味着策略误差在单位时间内传播更远、恢复窗口更短，使得分布偏移的后果从"性能下降"加剧为"碰撞风险"。
+
+DAgger（Dataset Aggregation）\cite{Ross2011DAgger}通过迭代式数据集聚合系统缓解分布偏移：在每轮迭代中，使用当前策略在线采集数据并由专家标注，然后将新数据合并到训练集中重新训练策略。DAgger的理论分析表明，经过$N$轮迭代后策略的期望损失上界与训练集上的损失呈线性关系，优于纯BC的二次增长。本文在BC基线的基础上实施DAgger闭环数据增强，并在第6章进行系统评测。
+
+\subsection{算法与执行策略}
+
+本文以ViT+Mamba的BC训练checkpoint（R0）为初始策略，实际执行了3轮DAgger迭代（R1--R3），而非最初配置文件中计划的5轮。以下以实际pipeline执行参数为准。
+
+DAgger迭代框架的每轮执行流程如下：
+\begin{enumerate}
+  \item 以上一轮的checkpoint在Flightmare中运行当前策略，按混合比例$\beta$混合学生策略与专家策略生成控制指令执行；
+  \item 收集当前策略诱导的状态--观测序列，由特权信息专家为所有状态提供标注（速度指令）；
+  \item 将新采集的数据合并到训练集中，从上一轮checkpoint继续fine-tune。
+\end{enumerate}
+
+表~\ref{tab:dagger_config}给出了3轮DAgger迭代的完整配置参数。
+
+\begin{table}[htbp]
+\centering
+\caption{DAgger迭代执行配置}
+\label{tab:dagger_config}
+\zihao{5}
+\begin{tabular}{lccccccccc}
+\toprule
+\textbf{轮次} & $\boldsymbol{\beta}$ & \textbf{新增} & \textbf{累计} & \textbf{Balance后} & \textbf{Epochs} & \textbf{LR} & \textbf{Warmup} & \textbf{Expert} & \textbf{Checkpoint} \\
+ & & \textbf{轨迹} & \textbf{轨迹} & \textbf{总量} & & & & \textbf{Ratio} & \textbf{来源} \\
+\midrule
+R0 (BC) & -- & 585 & 585 & 585 & 100 & 1e-4 & 15 & 100\% & 从零训练 \\
+R1 & 0.7 & 18 & 603 & -- & 30 & 5e-5 & 5 & -- & R0 \\
+R2 & 0.3 & 18 & 621 & -- & 30 & 5e-5 & 5 & -- & R1 \\
+R3 & 0.0 & 18 & 639 & -- & 30 & 5e-5 & 5 & -- & R2 \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\item \zihao{6} 注：$\beta$为专家混合比例（$\beta=1$表示纯专家，$\beta=0$表示纯学生策略）。每轮从上一轮checkpoint继续fine-tune，学习率衰减采用指数策略。
+\end{tablenotes}
+\end{table}
+
+关键执行细节如下：
+\begin{itemize}
+  \item \textbf{专家混合比例$\beta$}：R1使用$\beta=0.7$（70\%专家控制），R2使用$\beta=0.3$，R3使用$\beta=0.0$（完全由学生策略控制），实现从专家主导到学生自主的平滑过渡；
+  \item \textbf{每轮采集量}：每轮在Flightmare中采集18条轨迹，速度桶分配为$\SI{9}{m/s}$与$\SI{12}{m/s}$各6条、$\SI{3}{m/s}$/$\SI{5}{m/s}$/$\SI{7}{m/s}$各2条——\textbf{偏重高速段}采集，因为高速段是分布偏移最显著的速度区间；
+  \item \textbf{采集环境}：仅在Spheres环境中采集DAgger数据，Trees环境\textbf{严格保持零样本}（zero-shot），确保OOD评测的公正性；
+  \item \textbf{训练配置}：每轮从上一轮checkpoint继续fine-tune 30个epochs，学习率$5 \times 10^{-5}$，warmup 5个epochs，指数衰减。该配置与原始BC训练（100 epochs, $1 \times 10^{-4}$）存在差异，以实际执行的pipeline为准；
+  \item \textbf{执行轮次说明}：虽然初始配置计划执行5轮，但实际因R3后碰撞指标已趋于收敛，执行了3轮即停止。
+\end{itemize}
+
+\subsection{评测指标审计与重算规范}
+
+DAgger实验引入了碰撞持续时间（collision duration）等新指标。为确保与BC基线结果的口径一致性，本文对所有DAgger实验与BC基线的评测指标均从\texttt{data.csv}逐帧重算，不依赖中间summary脚本的输出。
+
+\textbf{（1）碰撞事件次数（Collision Count）。}
+沿用第3章的定义：以碰撞标志的\textbf{上升沿}（从0变为1）统计独立碰撞事件次数。
+
+\textbf{（2）碰撞持续时间（Collision Duration）。}
+定义为单个回合内\textbf{每次碰撞事件的平均持续帧数}，即碰撞总帧数除以碰撞事件次数（Collision Count）。该指标刻画"一旦发生碰撞，平均持续多久"，与Collision Count互补：前者度量碰撞发生的频次，后者度量碰撞接触的粘连程度。主结论采用\textbf{含零}口径（即未发生碰撞的回合记为0），用于计算跨回合均值。而分布可视化图中采用\textbf{条件分布}口径（仅统计$\text{duration} > 0$的回合），以更清晰地展示碰撞发生时的持续时间分布特征。两种口径的差异在第6章图表中均有明确标注。
+
+\textbf{（3）完成时间（Finish Time）。}
+采用基于时间戳（timestamp-based）的计算方式，取回合内最后一帧与第一帧的时间差。
+
+\textbf{（4）平均前向速度（Mean $v_x$）。}
+直接从状态记录中的$\text{vel\_x}$字段计算回合内均值，反映策略的整体飞行效率。
+
+\textbf{（5）逐帧重算原则。}
+所有上述指标均从原始的逐帧记录文件\texttt{data.csv}重新计算，避免不同版本summary脚本之间的口径不一致。该重算流程覆盖DAgger各轮次结果与BC基线结果，确保跨方法对比的公平性。实验结果详见第6章。
+
+
+\section{部署侧安全约束：RACS动态速率限制}
+
+ViT+Mamba通过更强的时序建模能力在高速段显著降低了碰撞率，但更敏捷的时序响应可能伴随更高频率的控制指令变化（Command Jerk），影响执行器寿命、能耗与飞行平滑性。本节提出部署侧动态速率限制控制平滑器（Rate-Adaptive Control Smoother, RACS），作为策略网络输出后的"即插即用"后处理模块，在不修改训练过程的前提下缓解jerk代价。
+
+\subsection{问题动机与设计目标}
+
+敏捷性与平滑性之间存在内在矛盾：更激进的避障动作意味着更大幅度的指令变化与更高的jerk，而更平滑的指令输出可能延迟避障反应并增加碰撞风险。图~\ref{fig:jerk_motivation}给出了ViT+Mamba与ViT+LSTM在各速度档位下的Command Jerk对比，表明ViT+Mamba的jerk在中高速段整体高于ViT+LSTM基线。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/fig_jerk_only.png}
+\caption{不同方法的Command Jerk随速度变化趋势。ViT+Mamba的jerk在中高速段整体高于ViT+LSTM基线，反映了更敏捷时序响应的代价。}
+\label{fig:jerk_motivation}
+\end{figure}
+
+RACS的设计目标是：在不过度牺牲安全性的前提下，通过部署侧的轻量约束降低不必要的高频指令抖动。
+
+\subsection{算法定义与数学形式}
+
+RACS的核心机制是对相邻两个控制周期之间的速度指令变化幅度施加动态上界约束：
+\begin{equation}
+  \|\mathbf{v}_{\text{cmd}} - \mathbf{v}_{\text{prev}}\|_2 \leq \delta_t
+  \label{eq:racs_constraint}
+\end{equation}
+其中$\mathbf{v}_{\text{cmd}}$为最终发布的速度指令，$\mathbf{v}_{\text{prev}}$为上一控制步发布的速度指令，$\delta_t$为当前时刻的动态速率上界。
+
+当网络原始输出$\mathbf{v}_{\text{raw}}$满足约束时直接发布；否则将$\mathbf{v}_{\text{cmd}}$投影至以$\mathbf{v}_{\text{prev}}$为中心、半径为$\delta_t$的$L_2$球面上：
+\begin{equation}
+  \mathbf{v}_{\text{cmd}} = \begin{cases}
+    \mathbf{v}_{\text{raw}} & \text{若 } \|\mathbf{v}_{\text{raw}} - \mathbf{v}_{\text{prev}}\|_2 \leq \delta_t \\
+    \mathbf{v}_{\text{prev}} + \delta_t \cdot \dfrac{\mathbf{v}_{\text{raw}} - \mathbf{v}_{\text{prev}}}{\|\mathbf{v}_{\text{raw}} - \mathbf{v}_{\text{prev}}\|_2} & \text{否则}
+  \end{cases}
+  \label{eq:racs_projection}
+\end{equation}
+
+与传统静态限幅器不同，RACS的速率上界$\delta_t$根据当前环境状态动态调整。当前实现以最小深度观测值$d_{\min,t}$作为环境风险的代理指标：当障碍接近（$d_{\min,t}$较小）时\textbf{放宽}$\delta_t$以保留敏捷避障能力；当远离障碍（$d_{\min,t}$较大）时\textbf{收紧}$\delta_t$以增强平滑。
+
+算法~\ref{alg:racs}给出了RACS的完整实现。
+
+\begin{algorithm}[htbp]
+\caption{RACS动态速率限制控制平滑器}
+\label{alg:racs}
+\begin{algorithmic}[1]
+\Require 网络原始输出$\mathbf{v}_{\text{raw}}$，上一步指令$\mathbf{v}_{\text{prev}}$，当前最小深度$d_{\min,t}$
+\Ensure 最终发布指令$\mathbf{v}_{\text{cmd}}$
+\State 根据$d_{\min,t}$计算动态速率上界$\delta_t$ \Comment{环境越危险，$\delta_t$越大}
+\State $\Delta \mathbf{v} \leftarrow \mathbf{v}_{\text{raw}} - \mathbf{v}_{\text{prev}}$
+\If{$\|\Delta \mathbf{v}\|_2 \leq \delta_t$}
+  \State $\mathbf{v}_{\text{cmd}} \leftarrow \mathbf{v}_{\text{raw}}$ \Comment{未超出限制，直接发布}
+\Else
+  \State $\mathbf{v}_{\text{cmd}} \leftarrow \mathbf{v}_{\text{prev}} + \delta_t \cdot \frac{\Delta \mathbf{v}}{\|\Delta \mathbf{v}\|_2}$ \Comment{投影至约束球面}
+\EndIf
+\State \Return $\mathbf{v}_{\text{cmd}}$
+\end{algorithmic}
+\end{algorithm}
+
+RACS的计算仅涉及一次向量差、一次范数计算与一次条件分支，计算开销\textbf{低于$\SI{0.1}{ms}$}，相比策略网络的推理时间可忽略不计。该模块完全在部署侧运行，\textbf{不修改策略网络的训练过程}，因此可作为即插即用的后处理组件。
+
+\subsection{在安全学习方法谱系中的定位}
+
+RACS在安全学习方法的谱系中定位为\textbf{部署侧后处理平滑策略}，与以下两类方法形成互补：
+\begin{enumerate}
+  \item \textbf{训练时约束}（如约束优化、拉格朗日对偶）：在训练过程中引入安全惩罚。优势是不需要运行时修正；劣势是可能限制策略探索空间。
+  \item \textbf{运行时安全证书与滤波}（如CBF\cite{Cheng2019RLwithCBF}、MPSC\cite{Wabersich2018MPSC}）：在策略输出后进行可行性检查与最小修改，提供形式化安全保证。劣势是需要精确的安全集估计与动力学模型。
+\end{enumerate}
+
+RACS的设计哲学是：在承认不具备形式化安全保证的前提下，以最小的工程复杂度换取显著的平滑性改善。后续可在RACS框架上叠加更严格的安全约束，形成分层安全架构\cite{Brunke2022SafeLearningReview}。
+
+\subsection{权衡分析与扩展路径}
+
+$\delta_t$的取值范围决定了平滑性与安全性之间的权衡点：$\delta_t$过小会过度压制避障反应导致碰撞率上升；$\delta_t$过大则约束形同虚设。当前实现通过基于最小深度$d_{\min,t}$的启发式规则在实验中取得了良好的权衡，但需要承认其在极端场景下的局限性。
+
+后续可向真正的风险自适应版本扩展：（1）基于碰撞时间$\text{TTC} = d / v_{\text{rel}}$的风险估计；（2）利用策略网络中间特征或独立风险预测头估计短期碰撞概率$P(\text{collision} \mid o_t)$；（3）将$\delta_t$调度规则本身作为可学习模块。这些扩展方向构成本文的后续工作。RACS的实验验证详见第6章。

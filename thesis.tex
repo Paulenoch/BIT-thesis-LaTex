@@ -10,6 +10,12 @@
 
 \documentclass[oneside, master,normal,fontset=fandol]{BIT-thesis-grd-jdh}
 
+% 补充宏包：算法环境
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+% 补充宏包：TikZ扩展库
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit,backgrounds,shadows}
+
 % 模板选项： 硕士论文 master； 博士论文 doctor
 % 正常模式：normal  自查重模式：selfSimilarCheck  盲审模式：blindCheck
 % 提交学校的查重文件可以直接使用normal模式结果
@@ -100,33 +106,11 @@
 %%%%%%%%%%%%%论文正文部分%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \include{chapters/chapter1/chapter1}
 \include{chapters/chapter2/chapter2}
-%%%%%%%%%%%%以下部分仅用于举例样式%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-\chapter{部分新增命令使用示例}
-\fbox{自查重模式下使用$\backslash$insert*系列命令指定的内容将不被显示。}\\
-\begin{lstlisting}[language={tex}, caption={$\backslash$insert*系列指令使用示例}]
-\insertContents{
-	anything contents....
-}
-\insertFigure{
-	\begin{figure}
-		.......
-	\end{figure}
-}
-\insertTable{
-	\begin{table}
-		.......
-	\end{table}
-}
-\insertEquation{
-	\begin{equation}
-		......
-	\end{equation}
-}
-\end{lstlisting}
-%结论
-
-自查重模式下使用$\backslash$ncite、$\backslash$nupcite、$\backslash$nref命令进行的引用，引用标注将不显示。使用方式同$\backslash$cite、$\backslash$upcite、$\backslash$ref。
-
+\include{chapters/chapter3/chapter3}
+\include{chapters/chapter4/chapter4}
+\include{chapters/chapter5/chapter5}
+\include{chapters/chapter6/chapter6}
+%% 结论
 \include{chapters/conclusion}
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

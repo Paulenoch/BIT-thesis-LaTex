@@ -1,0 +1,234 @@
+\chapter{问题定义与系统框架}
+
+本章对高速端到端视觉避障任务进行形式化定义，明确观测空间、动作空间、回合终止条件与评价指标，并描述基于Flightmare仿真平台的闭环控制架构、特权信息专家数据生成流程以及可审计的评测协议。本章所建立的定义与协议将贯穿后续所有实验章节，确保评测结论的可复现性与可信性。
+
+\section{任务定义与回合终止条件}
+
+\subsection{任务形式化}
+
+本文研究的任务为四旋翼在三维密集障碍环境中的高速视觉避障。该任务可形式化为一个序列决策问题：在每个控制周期$t$，策略$\pi$根据当前观测$o_t$输出控制动作$a_t$，由仿真器或低层控制器执行后产生下一时刻的观测$o_{t+1}$，形成闭环。形式化地，该任务由以下五元组定义：
+\begin{equation}
+  \mathcal{M} = \langle \mathcal{O}, \mathcal{A}, \mathcal{T}, \mathcal{G}, \tau_{\max} \rangle
+  \label{eq:task_tuple}
+\end{equation}
+其中$\mathcal{O}$为观测空间（包含视觉观测与轻量状态），$\mathcal{A}$为动作空间（世界坐标系下的速度指令），$\mathcal{T}: \mathcal{O} \times \mathcal{A} \rightarrow \mathcal{O}$为由仿真器物理引擎决定的状态转移函数，$\mathcal{G}$为回合终止条件集合，$\tau_{\max}$为最大回合时长。
+
+\subsection{评测环境}
+
+评测环境包含两类障碍分布，用于分别验证同分布性能与分布外泛化能力：
+\begin{enumerate}
+  \item \textbf{Spheres}（同分布环境）：三维空间中随机分布的球体障碍，障碍物的位置、大小与密度在训练数据生成时已被覆盖。该环境作为策略的同分布测试条件。
+  \item \textbf{Trees}（分布外环境）：树状结构障碍，其几何形态（细长圆柱与冠层）与训练时的球体障碍存在显著差异。该环境用于检验策略在未见过的障碍形态下的零样本泛化能力。
+\end{enumerate}
+
+\subsection{回合终止条件}
+
+每个回合（Trial）的终止由以下条件共同确定：
+\begin{itemize}
+  \item \textbf{到达终点}：无人机沿$X$轴（主飞行方向）的累积飞行距离超过$\SI{58}{m}$至$\SI{60}{m}$时，判定到达终点线，回合正常结束。
+  \item \textbf{超时终止}：系统设置$\tau_{\max} = \SI{40}{s}$的硬性时间上限。若在此时间内未到达终点，回合因超时而终止。
+\end{itemize}
+
+需要特别强调的是：\textbf{碰撞不会立即终止回合}。碰撞标志在整个回合持续记录，用于统计全程尺度的碰撞频率与碰撞事件次数。这一设计使得评测能够反映策略在碰撞后的恢复能力，而非仅度量"首次碰撞前飞行距离"。
+
+
+\section{观测空间与动作空间}
+
+\subsection{深度图像观测}
+
+在每个控制周期$t$，策略接收单目深度图像$D_t \in \mathbb{R}^{H \times W}$作为视觉输入。深度值以米为单位表示。图像分辨率设置为$H=60, W=90$，并在输入策略网络前进行以下预处理：
+\begin{enumerate}
+  \item 将原始深度值乘以缩放因子$\alpha = 0.09$进行归一化，使数值范围适配网络训练；
+  \item 训练阶段引入高斯噪声（$\sigma = 0.02$）与随机亮度扰动（$\pm 10\%$）以增强策略对传感噪声的鲁棒性。
+\end{enumerate}
+
+\subsection{轻量状态输入}
+
+除视觉观测外，策略还接收轻量状态向量$s_t$：
+\begin{equation}
+  s_t = [q_t, \tilde{v}^{\text{target}}]
+  \label{eq:state}
+\end{equation}
+其中：
+\begin{itemize}
+  \item $q_t = [w, x, y, z]$为无人机在世界坐标系下的实时姿态单位四元数，采用$[w, x, y, z]$排列顺序；
+  \item $\tilde{v}^{\text{target}} = v^{\text{target}} / 10$为目标前向速度的归一化输入，通过线性缩放将速度值映射至与四元数量级相近的范围，有利于训练稳定性。
+\end{itemize}
+
+策略网络\textbf{不直接输入无人机的实时速度}，而是以目标速度作为条件输入。这一设计的考虑是：策略应学习根据视觉观测与姿态信息在障碍环境中维持目标速度并完成避障，而非依赖实时速度反馈进行简单的速度跟踪。目标速度作为条件输入允许同一策略在不同速度档位下评测，而不需要为每个速度单独训练模型。
+
+\subsection{动作空间}
+
+策略在每个控制周期输出世界坐标系下的三维线速度指令：
+\begin{equation}
+  \mathbf{v}_t = [v^x_t, v^y_t, v^z_t] \in \mathbb{R}^3
+  \label{eq:action}
+\end{equation}
+采用世界坐标系（world frame）输出的原因是：与对比基线保持相同的控制语义，确保ViT+Mamba与ViT+LSTM在公平条件下进行比较。该速度指令经由低层控制器转化为电机指令，由仿真器执行并更新无人机状态。
+
+
+\section{闭环控制回路与部署形态}
+
+\subsection{系统架构}
+
+本文采用的端到端闭环控制系统由三个层次组成：感知层、策略层与执行层。图~\ref{fig:control_loop}给出了闭环控制回路的时序示意。
+
+\begin{figure}[htbp]
+\centering
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit,backgrounds}
+\begin{tikzpicture}[
+  >=Stealth,
+  node distance=0.6cm and 0.8cm,
+  block/.style={draw, rounded corners=3pt, minimum width=2.2cm, minimum height=1.0cm, align=center, font=\small},
+  arrow/.style={->, thick, color=black!70},
+]
+% 节点
+\node[block, fill=blue!10] (obs) {深度图像$D_t$\\轻量状态$s_t$};
+\node[block, fill=orange!10, right=of obs] (encoder) {ViT 编码器\\(空间表征)};
+\node[block, fill=orange!15, right=of encoder] (mamba) {Mamba 模块\\(时序聚合)};
+\node[block, fill=red!8, dashed, right=of mamba] (racs) {RACS\\(速率限制)};
+\node[block, fill=green!10, below=1.2cm of mamba] (ctrl) {低层控制器};
+\node[block, fill=green!10, left=of ctrl] (sim) {仿真器/飞行器};
+
+% 连线
+\draw[arrow] (obs) -- (encoder);
+\draw[arrow] (encoder) -- (mamba);
+\draw[arrow] (mamba) -- node[above, font=\scriptsize] {$\mathbf{v}_{\text{raw}}$} (racs);
+\draw[arrow] (racs) |- node[right, font=\scriptsize, pos=0.25] {$\mathbf{v}_{\text{cmd}}$} (ctrl);
+\draw[arrow] (ctrl) -- (sim);
+\draw[arrow] (sim) -| node[left, font=\scriptsize, pos=0.75] {状态反馈} (obs);
+\end{tikzpicture}
+\caption{端到端闭环控制回路时序示意}
+\label{fig:control_loop}
+\end{figure}
+
+在每个控制周期内，系统执行以下流程：
+\begin{enumerate}
+  \item 仿真器/飞行器提供当前深度图像$D_t$与轻量状态$s_t$；
+  \item 视觉编码器（ViT）将深度图像编码为空间特征向量；
+  \item 时序聚合模块（Mamba）融合空间特征与轻量状态，结合内部时序状态输出原始速度指令$\mathbf{v}_{\text{raw}}$；
+  \item 部署侧约束模块（RACS，可选）对指令施加动态速率限制，输出最终指令$\mathbf{v}_{\text{cmd}}$；
+  \item 低层控制器将速度指令转化为电机指令并执行，更新无人机状态。
+\end{enumerate}
+
+\subsection{仿真平台}
+
+本文所有实验在Flightmare高保真仿真平台\cite{Song2021Flightmare}中完成。Flightmare的设计强调物理引擎与渲染引擎的解耦：物理仿真可以在不启动渲染的情况下以极高速率运行（用于大规模数据生成），也可以启动渲染以支持视觉观测生成与可视化评测。本文利用Flightmare的以下特性：
+\begin{itemize}
+  \item 高效物理仿真支撑大规模专家数据生成；
+  \item 可配置障碍场景（Spheres、Trees等）支撑多分布评测；
+  \item 精确的碰撞检测与状态记录支撑帧级指标统计。
+\end{itemize}
+
+\subsection{控制频率与延迟预算}
+
+系统以策略网络的推理周期为基本控制频率运行。在本文的硬件配置（NVIDIA RTX 4060 GPU）下，ViT+Mamba策略的单步推理时间为毫秒级，可满足高速飞行所需的控制带宽。控制周期的实际分布（包括推理时间与系统调度抖动）将在第6章中通过$\Delta t$分布统计进行分析，以排除系统负载差异对实验结论的混淆影响。
+
+
+\section{特权信息专家与数据生成}
+
+\subsection{专家策略设计}
+
+本文采用行为克隆（Behavioral Cloning）范式训练策略网络，示范数据由带特权信息的专家策略生成。与学生策略仅能获取深度图像不同，专家策略在每个控制步可访问以下特权信息：
+\begin{itemize}
+  \item 无人机的完整状态（位置、速度、姿态）；
+  \item 一定局部范围内障碍物的精确几何信息。
+\end{itemize}
+
+专家策略的决策过程如算法~\ref{alg:expert}所示。
+
+\begin{algorithm}[htbp]
+\caption{特权信息专家策略}
+\label{alg:expert}
+\begin{algorithmic}[1]
+\Require 无人机状态（位置$\mathbf{p}$、姿态$q$）、局部障碍几何、目标速度$v^{\text{target}}$、前视距离$d_{\text{look}}$
+\Ensure 世界坐标系下的速度指令$\mathbf{v}_{\text{expert}}$
+\State 在无人机前方$d_{\text{look}}$处的$y$--$z$平面上均匀离散采样候选航点集合$\mathcal{W} = \{w_1, w_2, \ldots, w_K\}$
+\For{每个候选航点$w_i \in \mathcal{W}$}
+  \State 从当前位置$\mathbf{p}$到$w_i$执行直线碰撞检测
+  \If{路径无碰撞}
+    \State 标记$w_i$为可行航点
+  \EndIf
+\EndFor
+\State 从所有可行航点中选择最接近网格中心的航点$w^*$
+\State 计算相对位移$\Delta \mathbf{p} = w^* - \mathbf{p}$
+\State 施加比例增益生成速度指令$\mathbf{v}_{\text{expert}} = K_p \cdot \Delta \mathbf{p}$
+\State \Return $\mathbf{v}_{\text{expert}}$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{训练数据集}
+
+训练数据集\textbf{仅在Spheres环境中生成}，包含约585条专家轨迹。学生策略以深度图像$D_t$与轻量状态$s_t$为输入，以专家速度指令$\mathbf{v}_{\text{expert}}$为监督信号进行回归学习。
+
+为验证策略的泛化能力，所有策略网络仅在Spheres环境生成的专家数据上训练，并在Trees环境中进行\textbf{零样本（Zero-shot）测试}——策略从未接触过Trees环境的任何数据。这一严格的评测协议确保了泛化能力评估的公正性：性能差异完全来源于策略的内在泛化能力，而非数据泄漏或目标域再训练。
+
+
+\section{评价指标与统计协议}
+
+\subsection{安全性指标}
+
+\textbf{（1）全程碰撞率（Collision Rate）。}
+定义为回合内碰撞帧数占回合总帧数的比例：
+\begin{equation}
+  \text{Collision Rate} = \frac{\sum_{t=1}^{T} \mathbb{1}[\text{collision}_t = 1]}{T}
+  \label{eq:collision_rate}
+\end{equation}
+其中$T$为回合总帧数，$\text{collision}_t \in \{0, 1\}$为第$t$帧的碰撞标志。该指标度量碰撞接触在整个飞行过程中的频繁程度与持续时间。
+
+\textbf{（2）碰撞事件次数（Collision Count）。}
+将连续碰撞帧视为同一次碰撞事件，统计碰撞标志从0变为1的上升沿次数：
+\begin{equation}
+  \text{Collision Count} = \sum_{t=2}^{T} \mathbb{1}[\text{collision}_t = 1 \wedge \text{collision}_{t-1} = 0]
+  \label{eq:collision_count}
+\end{equation}
+该指标刻画独立碰撞事件的发生频次，与Collision Rate互补。
+
+\textbf{（3）成功率（Success Rate）。}
+定义为在超时限$\tau_{\max}$内到达终点线的回合比例：
+\begin{equation}
+  \text{Success Rate} = \frac{\text{到达终点的回合数}}{\text{总回合数}}
+  \label{eq:success_rate}
+\end{equation}
+
+\textbf{（4）超时率（Timeout Rate）。}
+定义为因超时而终止的回合比例：
+\begin{equation}
+  \text{Timeout Rate} = 1 - \text{Success Rate}
+  \label{eq:timeout_rate}
+\end{equation}
+
+\subsection{平滑性指标}
+
+\textbf{指令抖动（Command Jerk）。}
+定义为相邻两个控制步发布的速度指令之差的$L_2$范数：
+\begin{equation}
+  \text{Jerk}_t = \|\mathbf{v}_t - \mathbf{v}_{t-1}\|_2
+  \label{eq:jerk}
+\end{equation}
+报告回合内平均值$\overline{\text{Jerk}} = \frac{1}{T-1}\sum_{t=2}^{T} \text{Jerk}_t$及跨回合统计量。需要指出的是：若启用RACS部署侧约束模块，则以最终发布并执行的速度指令$\mathbf{v}_{\text{cmd}}$（而非网络原始输出$\mathbf{v}_{\text{raw}}$）计算jerk，以反映真实控制平滑性。
+
+\subsection{系统性能指标}
+
+\textbf{推理时间（Inference Time）。}
+记录单步模型前向推理耗时，用于评估策略的实时性与部署可行性。
+
+\subsection{统计方式}
+
+对每个速度档位与环境配置下的10次独立试验，报告各指标的均值与标准差。不同方法之间的性能差异通过均值对比与方差分析进行评估。
+
+
+\section{评测可审计规范}
+
+为确保实验结论的可复现性与可追溯性，本文建立以下评测可审计规范：
+
+\begin{enumerate}
+  \item \textbf{随机种子固定}：所有实验固定随机种子（包括PyTorch、NumPy、CUDA确定性模式与环境初始化种子），确保同一配置下的实验结果可精确复现。
+  \item \textbf{环境参数记录}：每次评测自动记录环境类型（Spheres/Trees）、障碍密度参数、目标速度档位与回合终止条件等关键配置。
+  \item \textbf{状态重置时机}：明确记录序列模型内部状态的重置时机（仅在回合边界），并通过运行时断言确保回合内状态的连续传播（详见第5章）。
+  \item \textbf{日志字段}：每次试验的日志包含请求配置与实际生效配置的对比记录，确保不存在配置被意外覆盖的情况。
+  \item \textbf{版本号固化}：记录策略网络权重文件的哈希值、代码版本号与依赖库版本，使得实验环境可完整还原。
+  \item \textbf{控制周期分布}：记录每次试验中所有控制步的$\Delta t$时间间隔分布，用于排除系统负载差异造成的混淆因素（详见第6章分析）。
+\end{enumerate}
+
+上述规范贯穿本文所有实验，确保评测结论不受实现细节污染，并为后续研究者提供可复现的评测基线。
