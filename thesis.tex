@@ -15,6 +15,10 @@
 \ifdefined\FLOATAUDIT
   \InputIfFileExists{tools/float_audit.tex}{}{}
 \fi
+% Fallback for audit markers that may exist in .aux files.
+\makeatletter
+\providecommand{\floataudit@firstref}[2]{}
+\makeatother
 
 % 补充宏包：算法环境
 \usepackage{algorithm}
@@ -29,6 +33,8 @@
 \newtheorem{definition}{定义}[chapter]
 % 补充宏包：SI单位
 \usepackage{siunitx}
+% 补充宏包：限制浮动体跨段落漂移（保守排版修复）
+\usepackage{placeins}
 
 % 模板选项： 硕士论文 master； 博士论文 doctor
 % 正常模式：normal  自查重模式：selfSimilarCheck  盲审模式：blindCheck

@@ -347,6 +347,7 @@ $\delta_t$根据当前最小深度观测值$d_{\min,t}$动态调整：障碍接�
   \label{eq:delta_schedule}
 \end{equation}
 
+调度曲线示意见图~\ref{fig:delta_schedule}。
 \begin{figure}[htbp]
 \centering
 \begin{tikzpicture}
@@ -510,7 +511,7 @@ Jerk Loss采用三阶段课程学习的设计动机为：第一阶段（0--30 ep
 
 （3）推理延迟相当。两种方法的单步推理延迟均在$\SI{6}{ms}$左右（表~\ref{tab:latency_profile}），Mamba模块略快于LSTM模块，但总延迟差异不大（被ViT编码器主导）。
 
-% TODO: 以下表格需要从实验日志中填入精确数值
+表~\ref{tab:main_spheres_ch3}与表~\ref{tab:main_trees_ch3}分别给出Spheres（ID）与Trees（OOD）环境下的碰撞率与碰撞事件次数数值结果。
 \begin{table}[htbp]
 \centering
 \caption{Spheres环境主结果：碰撞率与碰撞事件次数（均值$\pm$std）}
@@ -572,18 +573,20 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
 \label{fig:dt_dist_ch3}
 \end{figure}
 
+\FloatBarrier
+
 \subsection{DAgger轮次实验：碰撞频次与方差收敛}
 
 图~\ref{fig:dagger_d1_ch3}和图~\ref{fig:dagger_d2_ch3}分别给出碰撞事件次数与碰撞持续时间随DAgger轮次的变化。
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.88\textwidth]{Image/fig_d1_collision_count_vs_round.png}
+\includegraphics[width=0.78\textwidth]{Image/fig_d1_collision_count_vs_round.png}
 \caption{碰撞事件次数随DAgger轮次变化（$\SI{9}{m/s}$与$\SI{12}{m/s}$），误差条表示10次试验标准差}
 \label{fig:dagger_d1_ch3}
 \end{figure}
 
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.88\textwidth]{Image/fig_d2_collision_duration_vs_round.png}
 \caption{平均碰撞持续时间随DAgger轮次变化}
@@ -608,47 +611,40 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
 \label{fig:dagger_d5_ch3}
 \end{figure}
 
-\begin{figure}[htbp]
+分布可视化进一步确认了碰撞事件次数逐步集中于低值区域（图~\ref{fig:dagger_d6_ch3}），碰撞持续时间的条件分布在R2达到最紧凑（图~\ref{fig:dagger_d7_ch3}），表明DAgger不仅减少了碰撞发生的频次，还缩短了每次碰撞的持续时间——策略学会了更快地从碰撞状态中恢复。
+
+Trees（OOD）环境下的多维指标对比如图~\ref{fig:dagger_d4_ch3}所示。
+\begin{figure}[H]
 \centering
 \includegraphics[width=0.92\textwidth]{Image/fig_d4_trees_ood_multi.png}
 \caption{Trees OOD环境下BC与DAgger-R3的多维指标对比}
 \label{fig:dagger_d4_ch3}
 \end{figure}
 
-分布可视化进一步确认了碰撞事件次数逐步集中于低值区域（图~\ref{fig:dagger_d6_ch3}），碰撞持续时间的条件分布在R2达到最紧凑（图~\ref{fig:dagger_d7_ch3}），表明DAgger不仅减少了碰撞发生的频次，还缩短了每次碰撞的持续时间——策略学会了更快地从碰撞状态中恢复。
-
-\begin{figure}[htbp]
+\begin{figure}[H]
 \centering
-\includegraphics[width=0.88\textwidth]{Image/fig_d6_collision_count_distribution.png}
+\begin{minipage}[t]{0.49\textwidth}
+\centering
+\includegraphics[width=\textwidth]{Image/fig_d6_collision_count_distribution.png}
 \caption{碰撞事件次数的逐轮分布}
 \label{fig:dagger_d6_ch3}
-\end{figure}
-
-\begin{figure}[htbp]
+\end{minipage}\hfill
+\begin{minipage}[t]{0.49\textwidth}
 \centering
-\includegraphics[width=0.88\textwidth]{Image/fig_d7_collision_duration_distribution.png}
+\includegraphics[width=\textwidth]{Image/fig_d7_collision_duration_distribution.png}
 \caption{碰撞持续时间的逐轮分布（条件分布，$\text{duration} > 0$）}
 \label{fig:dagger_d7_ch3}
+\end{minipage}
 \end{figure}
+
+\FloatBarrier
 
 \subsection{RACS：安全--平滑权衡}
 \label{sec:ch3_racs_exp}
 
 图~\ref{fig:racs_results_ch3}给出RACS在Spheres环境下的验证结果。
 
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.92\textwidth]{Image/fig_dynamicrl_spheres_medium.png}
-\caption{RACS验证：Mamba No RACS、Mamba + RACS与ViT+LSTM在不同速度下的安全性与平滑性}
-\label{fig:racs_results_ch3}
-\end{figure}
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.85\textwidth]{Image/fig_jerk_only.png}
-\caption{不同方法的Command Jerk随速度变化趋势}
-\label{fig:jerk_motivation_ch3}
-\end{figure}
+不同方法的Command Jerk随速度变化趋势如图~\ref{fig:jerk_motivation_ch3}所示。
 
 实验表明以下关键结论：
 
@@ -657,6 +653,20 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
   \item 安全性基本保持：碰撞率在RACS开启前后变化不大，在部分速度档位甚至有微小改善——这可能归因于平滑后的指令减少了因指令抖动导致的"误触碰"；
   \item 计算开销可忽略：RACS单步耗时$<\SI{0.1}{ms}$（表~\ref{tab:latency_profile}），对控制频率无可观测影响。
 \end{enumerate}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.92\textwidth]{Image/fig_dynamicrl_spheres_medium.png}
+\caption{RACS验证：Mamba No RACS、Mamba + RACS与ViT+LSTM在不同速度下的安全性与平滑性}
+\label{fig:racs_results_ch3}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/fig_jerk_only.png}
+\caption{不同方法的Command Jerk随速度变化趋势}
+\label{fig:jerk_motivation_ch3}
+\end{figure}
 
 \subsection{消融实验}
 \label{sec:ch3_ablation}
@@ -667,7 +677,9 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
 
 表~\ref{tab:ablation_mamba_layers}给出Mamba层数消融结果。
 
-\begin{table}[htbp]
+预期趋势为：2层Mamba在高速段碰撞率偏高（时序聚合深度不足），6层Mamba碰撞率与4层接近但推理延迟增加约20\%，4层是安全性与效率的最优折中。
+
+\begin{table}[H]
 \centering
 \caption{Mamba层数消融（Spheres，$\SI{9}{m/s}$，10次均值）}
 \label{tab:ablation_mamba_layers}
@@ -685,8 +697,6 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
 \item \zihao{6} \textbf{TODO}：从消融实验日志中填入精确碰撞率、碰撞次数与Jerk数值。
 \end{tablenotes}
 \end{table}
-
-预期趋势为：2层Mamba在高速段碰撞率偏高（时序聚合深度不足），6层Mamba碰撞率与4层接近但推理延迟增加约20\%，4层是安全性与效率的最优折中。
 
 \subsubsection{Burn-in长度消融}
 
