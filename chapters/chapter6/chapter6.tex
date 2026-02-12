@@ -41,7 +41,7 @@
 \end{tabular}
 \end{table}
 
-所有评测方法使用相同的环境配置、随机种子与评测协议，确保对比的公平性。评测结果报告各指标在10次试验上的均值。
+所有评测方法使用相同的环境配置、随机种子与评测协议，确保对比的公平性。评测结果报告各指标在10次试验上的均值$\pm$标准差。
 
 
 \section{主结果：ViT+Mamba与ViT+LSTM的系统对比}
@@ -65,10 +65,9 @@
 \textbf{（2）分布外泛化优势同样显著。}
 在Trees环境（零样本OOD测试）中，ViT+Mamba同样保持了相对于ViT+LSTM的安全性优势，表明该改进并非仅对同分布场景有效，而是具备跨分布的泛化能力。
 
-% TODO: 以下表格需要从实验日志中填入精确数值
 \begin{table}[htbp]
 \centering
-\caption{Spheres环境主结果：碰撞率与碰撞事件次数（均值）}
+\caption{Spheres环境主结果：碰撞率与碰撞事件次数（均值$\pm$std）}
 \label{tab:main_spheres}
 \zihao{5}
 \begin{tabular}{lcccccc}
@@ -78,23 +77,22 @@
 \textbf{方法} & 3 & 5 & 7 & 9 & 12 \\
 \midrule
 \multicolumn{6}{l}{\textit{Collision Rate (\%)}} \\
-ViT+LSTM & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
-ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+ViT+LSTM & 0.82 $\pm$ 0.95 & 4.04 $\pm$ 2.42 & 6.93 $\pm$ 2.33 & 7.82 $\pm$ 2.85 & 5.77 $\pm$ 1.77 \\
+ViT+Mamba & 0.00 $\pm$ 0.00 & 0.77 $\pm$ 0.90 & 2.72 $\pm$ 2.75 & 2.49 $\pm$ 2.44 & 3.01 $\pm$ 1.64 \\
 \midrule
 \multicolumn{6}{l}{\textit{Collision Count}} \\
-ViT+LSTM & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
-ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+ViT+LSTM & 1.0 $\pm$ 1.00 & 5.0 $\pm$ 2.86 & 7.6 $\pm$ 2.50 & 9.0 $\pm$ 2.57 & 7.6 $\pm$ 1.74 \\
+ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.1 $\pm$ 1.76 & 2.3 $\pm$ 1.49 & 2.5 $\pm$ 1.50 \\
 \bottomrule
 \end{tabular}
 \begin{tablenotes}
-\item \zihao{6} 注：\textbf{--} 表示需从实验日志中填入精确数值。每个数值为10次试验的均值。
+\item \zihao{6} 注：每个数值为10次试验的均值$\pm$标准差。
 \end{tablenotes}
 \end{table}
 
-% TODO: 请从实验日志中填入精确数值
 \begin{table}[htbp]
 \centering
-\caption{Trees环境主结果：碰撞率与碰撞事件次数（均值）}
+\caption{Trees环境主结果：碰撞率与碰撞事件次数（均值$\pm$std）}
 \label{tab:main_trees}
 \zihao{5}
 \begin{tabular}{lcccccc}
@@ -104,16 +102,16 @@ ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} 
 \textbf{方法} & 3 & 5 & 7 & 9 & 12 \\
 \midrule
 \multicolumn{6}{l}{\textit{Collision Rate (\%)}} \\
-ViT+LSTM & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
-ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+ViT+LSTM & 1.22 $\pm$ 1.16 & 3.09 $\pm$ 1.30 & 7.37 $\pm$ 2.92 & 7.94 $\pm$ 2.15 & 4.49 $\pm$ 1.32 \\
+ViT+Mamba & 0.00 $\pm$ 0.00 & 0.95 $\pm$ 1.16 & 2.25 $\pm$ 1.26 & 4.24 $\pm$ 1.97 & 3.30 $\pm$ 1.39 \\
 \midrule
 \multicolumn{6}{l}{\textit{Collision Count}} \\
-ViT+LSTM & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
-ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+ViT+LSTM & 1.4 $\pm$ 1.28 & 3.8 $\pm$ 1.66 & 8.4 $\pm$ 2.94 & 9.2 $\pm$ 2.40 & 5.8 $\pm$ 2.09 \\
+ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 3.0 $\pm$ 1.26 \\
 \bottomrule
 \end{tabular}
 \begin{tablenotes}
-\item \zihao{6} 注：\textbf{--} 表示需从实验日志中填入精确数值。每个数值为10次试验的均值。
+\item \zihao{6} 注：每个数值为10次试验的均值$\pm$标准差。
 \end{tablenotes}
 \end{table}
 

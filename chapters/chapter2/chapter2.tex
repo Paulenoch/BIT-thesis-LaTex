@@ -1,160 +1,726 @@
-\chapter{相关工作与国内外研究现状}
+\chapter{预备知识与相关工作}
 
-\section{模块化自主飞行：感知--规划--控制范式}
+本章综述支撑本文三项创新点的核心背景知识，并固定全篇统一的评测协议与指标定义。本章的目标是"收敛"：只讲支撑后续创新章节所必须的背景，并把统一的评测口径固定下来，后面每章实验直接引用，不再重复。
 
-模块化导航系统通常由状态估计/建图（Perception）、路径/轨迹规划（Planning）与控制器（Control）三大模块串联构成。其优势在于可解释性强、模块边界清晰、各子系统可独立验证与替换；在结构化环境与中低速条件下，配合成熟的视觉/视觉惯性里程计（VIO）、SLAM与轨迹优化器可以取得可靠表现。然而，正如第1章所述，该范式在高速密集障碍环境中的串联延迟与跨模块误差传播会显著放大系统脆弱性。Loquercio等在野外高速飞行工作中对这一问题给出了非常明确的动机与实验论证\cite{Loquercio2021HighSpeedWild}。本节分别从状态估计、路径规划与仿真平台三个层面综述模块化范式的典型方法与局限。
+\section{四旋翼控制接口与任务抽象}
 
-\subsection{视觉/视觉惯性里程计与SLAM}
+\subsection{坐标系与控制量定义}
 
-状态估计是模块化导航系统的基石，其精度与实时性直接决定后续规划与控制模块的可靠性。视觉SLAM与视觉惯性里程计（VIO）在无人机导航中被广泛采用，根据前端特征提取方式的不同，可分为基于特征点的稀疏方法与基于直接法的半稠密/稠密方法两大类。
+本文采用东北天（ENU）右手坐标系作为世界坐标系。如图~\ref{fig:coord_frame}所示，无人机的位置与速度定义在世界坐标系下，姿态以四元数$q = [w, x, y, z]$表示机体坐标系相对于世界坐标系的旋转。
 
-在稀疏特征方法中，ORB-SLAM2是最具代表性的开源SLAM系统之一\cite{MurArtal2017ORBSLAM2}。该系统支持单目、双目与RGB-D三种模态输入，通过ORB特征的快速提取与匹配实现鲁棒追踪，并集成回环检测与全局位姿图优化以消除累积漂移。ORB-SLAM2在学术研究与工程原型中被广泛使用，其模块化设计（追踪线程、局部建图线程、回环线程）也成为后续SLAM系统的参考架构。然而，ORB-SLAM2依赖纹理特征进行匹配，在弱纹理、重复纹理或快速运动导致的运动模糊条件下，特征提取与匹配质量会显著下降，从而影响定位精度与系统鲁棒性。
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth, scale=0.9,
+  axis/.style={->, thick},
+]
+% 世界坐标系
+\node[font=\small\bfseries, color=blue!70, anchor=east] at (-0.8, 3.5) {世界坐标系 (World)};
+\draw[axis, blue!70] (0,0) -- (3.0,0) node[right, font=\small] {$X$ (前进方向)};
+\draw[axis, blue!70] (0,0) -- (0,3.0) node[left, font=\small] {$Z$ (竖直向上)};
+\draw[axis, blue!70] (0,0) -- (-1.2,-1.2) node[below left, font=\small] {$Y$ (侧向)};
 
-在视觉惯性估计方面，VINS-Mono是单目视觉惯性紧耦合估计的代表性工作\cite{Qin2018VINSMONO}。该系统将视觉特征观测与IMU预积分在非线性优化框架中进行联合估计，并设计了鲁棒的在线初始化、故障检测与恢复机制，使其在资源受限的机载平台上也能实现高精度的实时状态估计。VINS-Mono的紧耦合架构能够有效利用IMU的高频率与互补性来弥补视觉在快速运动时的信息缺失，这使得VIO成为中速自主飞行中较为可靠的状态估计方案。
+% 无人机简化图
+\node[draw, fill=gray!20, rounded corners=2pt, minimum width=1.2cm, minimum height=0.4cm] (drone) at (6.0, 1.5) {};
+\node[font=\scriptsize] at (6.0, 1.0) {四旋翼};
 
-从视觉SLAM面临的核心挑战来看，主要包括：（1）\textbf{尺度与初始化}——单目SLAM存在尺度模糊，需要通过运动先验或IMU融合来恢复度量尺度；（2）\textbf{动态物体}——动态场景中运动对象的特征会污染位姿估计，需要语义或几何手段进行筛除；（3）\textbf{回环检测}——回环检测的鲁棒性与计算效率直接影响长时间运行的漂移修正能力；（4）\textbf{运动模糊与快速旋转}——在高速飞行中尤为突出，图像模糊与大幅帧间运动会导致特征追踪失败。高翔等在"视觉SLAM研究进展"中从稀疏/半稠密/稠密地图构建、前后端优化架构与开放问题等维度对国内外视觉SLAM研究进行了系统梳理\cite{Gao2019SLAMSurvey}。张弓等在"移动机器人视觉惯性SLAM研究进展"中则从滤波与优化两大路线总结了VIO/VI-SLAM的发展脉络与核心挑战\cite{Zhang2018VIOSLAM}。
+% 机体坐标系
+\node[font=\small\bfseries, color=red!70] at (6.0, 3.8) {机体坐标系 (Body)};
+\draw[axis, red!70] (6.0,1.5) -- (7.5,1.5) node[right, font=\small] {$x_b$};
+\draw[axis, red!70] (6.0,1.5) -- (6.0,3.0) node[left, font=\small] {$z_b$};
+\draw[axis, red!70] (6.0,1.5) -- (5.2,0.7) node[below left, font=\small] {$y_b$};
 
-总体而言，视觉SLAM/VIO在结构化环境与中低速条件下具有稳定优势；但在高速密集障碍场景中，运动模糊会严重削弱视觉前端质量，串联流水线的推理延迟会等效为状态预测偏差，而建图不完备则使规划器缺少足够信息以做出安全决策。这些因素叠加后，模块化系统的闭环鲁棒性会显著降低\cite{Loquercio2021HighSpeedWild}。
+% 速度指令
+\draw[->, very thick, green!60!black, dashed] (6.0,1.5) -- (8.0,2.8) node[right, font=\small, color=green!60!black] {$\mathbf{v}_{\text{cmd}} = [v^x, v^y, v^z]$};
 
-\subsection{路径规划与轨迹规划}
+% 姿态四元数标注
+\node[draw, rounded corners=2pt, fill=yellow!10, font=\scriptsize, inner sep=3pt] at (3.2, -0.5) {姿态: $q_t = [w, x, y, z]$};
+\end{tikzpicture}
+\caption{世界坐标系与机体坐标系定义，以及速度指令接口}
+\label{fig:coord_frame}
+\end{figure}
 
-规划模块负责在感知模块构建的地图或障碍表示上生成安全可行的飞行路径或动力学可执行的轨迹。根据问题类型，可分为全局路径规划与局部轨迹优化/避障两个层面。
+策略网络在每个控制周期输出世界坐标系下的三维线速度指令$\mathbf{v}_t = [v^x_t, v^y_t, v^z_t] \in \mathbb{R}^3$，该指令由低层控制器（姿态环+电机混控）转化为电机转速执行。控制频率由策略推理速度决定，在本文硬件配置下可达毫秒级。经典四旋翼建模与控制理论可参见Mahony等\cite{Mahony2012QuadrotorSurvey}的综述。
 
-\subsubsection{全局路径规划：采样方法与渐近最优}
+\subsection{任务形式化}
 
-在全局路径规划中，采样方法因适用性强、可处理高维与复杂约束空间而被广泛采用。Karaman与Frazzoli提出的RRT*与PRM*给出了渐近最优采样规划的理论基础\cite{Karaman2011SamplingOptimal}，证明在采样数趋于无穷时路径代价收敛至全局最优，为后续大量采样规划工作奠定了理论框架。基于RRT*的改进工作在学术与工程中数量庞大，围绕采样策略、树结构优化、启发式引导与并行化等方面持续发展。
+本文研究的高速视觉避障任务形式化为序列决策问题。在每个控制周期$t$，策略$\pi_\theta$根据观测$o_t$输出控制动作$a_t$，形成闭环：
+\begin{equation}
+  \mathcal{M} = \langle \mathcal{O}, \mathcal{A}, \mathcal{T}, \mathcal{G}, \tau_{\max} \rangle
+  \label{eq:task_tuple}
+\end{equation}
+其中$\mathcal{O}$为观测空间（深度图像$D_t \in \mathbb{R}^{60 \times 90}$与轻量状态$s_t = [q_t, \tilde{v}^{\text{target}}]$），$\mathcal{A}$为动作空间（世界坐标系下的速度指令$\mathbf{v}_t \in \mathbb{R}^3$），$\mathcal{T}$为由仿真器物理引擎决定的状态转移函数，$\mathcal{G}$为回合终止条件集合，$\tau_{\max} = \SI{40}{s}$为最大回合时长。
 
-国内在三维路径规划方面同样积累了大量研究。王猛等针对无人机三维路径规划与避障问题，结合改进粒子群优化与滚动策略以实现实时避障与平滑性提升\cite{Wang2020UAVPath}，反映了国内学界在智能优化方法与工程可用性方面的典型思路。李志刚等在多旋翼无人机避障航迹规划研究中，围绕RRT类算法改进以满足动力学与代价约束展开工作\cite{Li2019MultiRotorRRT}，体现了国内在采样规划工程化方面的持续投入。
+策略以序列历史为条件输出当前动作：
+\begin{equation}
+  a_t = \pi_\theta(o_{\le t}, s_{\le t}) = \pi_\theta(D_{\le t}, q_{\le t}, \tilde{v}^{\text{target}})
+  \label{eq:policy}
+\end{equation}
 
-\subsubsection{局部避障与安全回退机制}
+\subsection{控制回路与低层控制器假设}
 
-在局部避障与轨迹优化层面，规划器往往需要在"速度"与"安全"之间进行折中。面向未知或部分已知环境中的高速飞行，安全回退是关键机制之一。FASTER规划器强调在未知环境中同时维护快速探索轨迹与安全回退轨迹（safe backup trajectory），使得在前方未知区域被感知到障碍时，系统能够切换到已验证安全的回退轨迹，从而在提高速度上限的同时降低碰撞风险\cite{Faust2018FASTER}。这种"安全回退+轨迹优化"的设计思想在后续多项工作中得到继承与拓展。
+本文的端到端策略工作在速度指令层级，将低层控制器视为黑盒。具体地，我们对低层控制器做以下假设：
 
-总体上，规划类方法具有明确的可解释性与安全回退机制，在低速至中速结构化场景中表现可靠。但在高速极限工况下，规划器仍可能受限于三个因素：（1）感知延迟导致地图更新滞后；（2）建图不完备使得规划空间信息不足；（3）在线重规划的计算预算受限。这些因素共同构成了端到端方法在高速场景中的替代动机。
+\begin{enumerate}
+  \item 一阶响应近似：低层控制器对速度指令的跟踪可近似为带延迟的一阶系统，即$\dot{\mathbf{v}}_{\text{actual}} = \frac{1}{\tau_c}(\mathbf{v}_{\text{cmd}} - \mathbf{v}_{\text{actual}})$，其中$\tau_c$为控制器时间常数（$\tau_c \approx \SI{50}{ms}$--$\SI{100}{ms}$）；
+  \item 速度饱和：实际速度受物理限制不超过最大可达速度$v_{\max}$（在本文仿真环境中$v_{\max} \approx \SI{15}{m/s}$）；
+  \item 姿态稳定性：低层控制器能够在策略输出的速度指令范围内保持姿态稳定，不发生失稳翻转。
+\end{enumerate}
 
-\subsection{高保真仿真平台与可复现实验基座}
+上述假设确定了策略网络的"控制权限边界"：策略不需要关心电机级细节，只需输出合理范围内的速度指令。这一假设在Flightmare仿真平台\cite{Song2021Flightmare}中由内置的PID/几何控制器\cite{Lee2010GeometricControl}保证。
 
-端到端学习控制高度依赖可规模化数据采集与可控实验条件，因此高保真仿真平台是关键基础设施。
+\subsection{安全指标与任务完成条件}
 
-Flightmare是面向四旋翼研究的代表性仿真器之一\cite{Song2021Flightmare}。其设计强调渲染引擎与物理引擎的解耦：物理仿真可以在不启动渲染的情况下以极高速率运行（用于大规模数据生成与策略训练），也可以启动高保真渲染以支持视觉观测的生成与可视化评测。这种灵活性使Flightmare成为端到端视觉避障研究中广泛使用的实验平台。
+本文采用"碰撞不终止回合"的评测设定，即无人机在碰撞后继续飞行。这一设定的统计学优势在于：（1）避免了碰撞终止导致的幸存者偏差（survivor bias）——若碰撞后立即终止，则高碰撞率策略的后续轨迹被截断，无法公平比较完整回合的统计特性；（2）能够同时统计碰撞率与成功率两个互补指标；（3）保留了碰撞事件的完整时间序列，支持更细粒度的碰撞事件分析（如碰撞持续时间、间隔分布等）。
 
-另一方面，Foehn等提出的Agilicious提供了开放软硬件一体化平台\cite{Foehn2022Agilicious}，覆盖从模型预测控制到神经网络控制的系统化验证需求。Agilicious不仅开源了仿真与控制代码，还提供了配套硬件方案，使得敏捷飞行研究具备可复现性与工程闭环能力，是近年敏捷无人机研究的重要基础设施之一。
-
-仿真平台的可用性对于端到端方法尤为重要：训练数据的规模与多样性、评测场景的可控性与可重复性、以及仿真到真实（Sim-to-Real）迁移的可行性，都直接影响研究结论的可信度。本文选择Flightmare作为主要实验平台，利用其高效物理仿真与可配置障碍场景支撑大规模训练与系统评测。
-
-
-\section{端到端视觉飞行控制：从轻量网络到高速野外与冠军竞速}
-
-端到端控制通常以"视觉到控制（vision-to-control）"为核心，直接回归控制量或短期轨迹，避免复杂建图与规划。其关键难点在于如何在噪声观测与分布偏移下保持鲁棒，以及如何在闭环中避免累积误差导致发散。
-
-\subsection{模仿学习、特权信息专家与Sim-to-Real}
-
-端到端视觉控制的早期探索可追溯到DroNet\cite{Loquercio2018DroNet}，该工作采用相对轻量的卷积神经网络从单目图像直接输出转向角与碰撞概率，实现了城市环境中的端到端导航，体现了"网络简化+实时可用"的早期思路。Deep Drone Racing\cite{Kaufmann2018DeepDroneRacing}则通过域随机化在仿真中训练并实现零样本迁移到真实四旋翼竞速环境，展示了"仿真大数据+迁移鲁棒性"的重要路线。CAD2RL\cite{Sadeghi2017CAD2RL}进一步验证了纯合成数据训练后直接迁移到真实室内场景的可能性，为大规模仿真训练提供了早期证据。
-
-更进一步，Loquercio等在Learning High-Speed Flight in the Wild中将端到端方法推进到复杂自然与人造环境中的高速飞行\cite{Loquercio2021HighSpeedWild}。该工作的核心设计包括：（1）使用可获取完整环境信息的"特权信息专家"（Privileged Expert）生成高质量示范轨迹；（2）通过系统化的传感噪声建模与域随机化实现零样本仿真到现实迁移；（3）端到端映射从深度图像直接输出速度指令，绕过显式建图与规划。该工作在森林、雪地、坍塌建筑等多种复杂环境中展示了高速飞行能力，系统阐明了高速场景下模块化流水线的局限，是端到端高速避障研究的重要里程碑。
-
-与"避障"任务不同，Deep Drone Acrobatics\cite{Kaufmann2020DeepDroneAcrobatics}面向的是极限机动动作（如翻滚、循环翻转等），同样使用仿真训练与特权信息示范来获得可迁移策略。该工作体现了端到端方法在高动态控制任务中的潜力与方法论共性：特权信息专家+仿真训练+域随机化的组合已成为端到端无人机控制的标准范式之一。
-
-\subsection{强化学习与竞速：从"可飞"到"超越人类冠军"}
-
-随着深度强化学习的发展，端到端系统在竞速场景中不断接近并超越人类水平。Kaufmann等提出的Swift系统\cite{Kaufmann2023SwiftNature}结合仿真深度强化学习与真实数据校正，在真实无人机竞速对抗中达到了与人类冠军同级甚至胜出的水平。Swift系统的成功依赖于多个关键要素：（1）大规模仿真中的分布式强化学习训练提供了充足的探索与策略优化基础；（2）真实飞行数据用于校正仿真与现实之间的系统性偏差（Sim-to-Real Gap）；（3）系统化的工程实现确保了从仿真策略到真实飞行器的可靠部署。
-
-Swift的成功表明，在充分的仿真基础设施与工程支撑下，端到端系统不仅可以在简单场景中替代传统流水线，更能在极端动态条件下展现出超越人类操控的性能上限。这一成果也反映出"仿真学习+真实数据校正"已成为端到端控制从实验室走向真实部署的主流范式。
-
-\subsection{模仿学习方法谱系与闭环分布偏移问题}
-
-在端到端控制的训练方法中，行为克隆（Behavioral Cloning, BC）因训练稳定、样本效率高而被广泛采用。BC的基本思路是将专家示范轨迹作为监督信号，通过回归损失直接训练策略网络。然而，BC的典型问题是闭环分布偏移（covariate shift）：训练数据来自专家轨迹的状态分布，而策略部署后诱导的实际状态分布会偏离训练分布，小误差会随时间累积并可能导致系统发散。
-
-Ross等提出的DAgger（Dataset Aggregation）\cite{Ross2011DAgger}通过迭代式数据集聚合来缓解这一问题：在每轮迭代中，使用当前策略在线采集数据并由专家标注，然后将新数据合并到训练集中重新训练策略。DAgger的理论分析表明，通过$T$轮迭代后策略的期望损失上界与训练集上的损失呈线性关系，而非像BC那样随时间步二次增长。DAgger是序列决策模仿学习中最经典的方法之一，后续的许多改进（如SafeDAgger、EnsembleDAgger等）都建立在其框架之上。
-
-在高速避障任务中，利用特权信息专家生成高质量示范数据并配合DAgger类闭环数据增强策略是提升可靠性的常见做法。本文采用BC与特权专家的组合进行训练，并在分布外（OOD）环境上进行零样本测试。为避免通过目标域再训练引入评测偏倚，本文严格采用零样本测试协议：策略仅在训练分布内数据上学习，不以任何形式接触测试环境，从而确保泛化能力的评测结论具备可信性。本文的核心控制变量是"时序建模+部署一致性"，而非数据泄漏或训练技巧。
+回合终止条件包括：（1）无人机沿$X$轴飞行距离达到$\SI{58}{m}$--$\SI{60}{m}$（成功）；（2）飞行时长超过$\tau_{\max} = \SI{40}{s}$（超时，通常意味着策略因频繁碰撞而无法正常前进）。
 
 
-\section{时序建模：RNN/LSTM、Transformer与结构化状态空间模型}
+\section{模仿学习与分布偏移：BC与DAgger}
 
-高速避障不是静态映射问题：无人机控制回路必须利用短期历史来抑制观测噪声、预测障碍相对运动趋势并稳定闭环输出，因此时序建模是端到端策略的核心能力之一。本节从RNN/LSTM、Transformer到结构化状态空间模型（SSM）的演进线索综述时序建模方法。
+\subsection{行为克隆（BC）}
 
-\subsection{RNN/LSTM的流式优势与局限}
+行为克隆（Behavioral Cloning, BC）是端到端控制中最常用的训练范式\cite{Pomerleau1989ALVINN}：以专家策略$\pi^*$生成的状态--动作对$\{(o_t, a_t^*)\}$为监督信号，通过最小化策略输出与专家动作之间的损失进行离线学习：
+\begin{equation}
+  \mathcal{L}_{\text{BC}} = \mathbb{E}_{(o,a^*) \sim d_{\pi^*}} \left[ \ell(\pi_\theta(o), a^*) \right]
+  \label{eq:bc_general}
+\end{equation}
+其中$d_{\pi^*}$为专家策略诱导的状态分布，$\ell(\cdot, \cdot)$为损失函数（本文采用均方误差MSE）。
 
-循环神经网络（RNN）及其变体长短期记忆网络（LSTM）\cite{Hochreiter1997LSTM}是最早被用于端到端控制中时序信息聚合的模型。LSTM通过门控机制（输入门、遗忘门、输出门）选择性地保留与更新记忆状态，缓解了普通RNN在长序列训练中的梯度衰减问题，使其能够在一定范围内维持对历史信息的有效记忆。
+BC的优势在于训练稳定、样本效率高、实现简单。在端到端控制文献中，从Pomerleau的ALVINN\cite{Pomerleau1989ALVINN}到NVIDIA自动驾驶\cite{Bojarski2016EndToEndNVIDIA}再到Codevilla等的条件模仿学习\cite{Codevilla2018EndToEndDriving}，BC一直是基础训练方法。Osa等\cite{Osa2018ImitationSurvey}对模仿学习的算法视角进行了全面综述。
 
-在在线控制场景中，LSTM/RNN的天然优势在于支持流式递推推理：每个时间步只需输入当前观测并更新固定大小的隐状态，计算开销恒定且不随序列长度增长。然而，LSTM也面临明确的局限：（1）\textbf{长期依赖建模受限}——尽管门控机制缓解了梯度衰减，但对于真正的长程依赖关系（如数百步以上），LSTM的记忆能力仍然有限；（2）\textbf{训练效率}——RNN的序列依赖性使其无法像Transformer那样进行完全并行化训练，在长序列上训练速度较慢；（3）\textbf{部署状态管理敏感性}——这是一个在实践中往往被忽视但影响深远的问题。
+\subsection{分布偏移与误差累积}
 
-关于状态管理敏感性，需要特别指出：LSTM在在线部署时高度依赖内部隐状态$(\mathbf{h}_t, \mathbf{c}_t)$的正确传播。训练通常采用固定长度序列的batch前向传播，而在线推理则是逐步更新。如果工程实现中在错误时刻（如每次推理调用时）重置隐状态，模型将退化为"无记忆策略"——即每个时间步仅根据当前单帧观测做出决策，完全丧失了时序聚合能力。这种退化往往不会在离线指标上直接暴露，但会在真实闭环中导致系统性漂移与性能崩坏。本文将在第5章中系统分析这一问题并给出工程解决方案。
+BC的核心问题在于闭环分布偏移（covariate shift）\cite{Ross2011DAgger}：训练数据由专家策略诱导的状态分布$d_{\pi^*}$生成，而部署时策略访问的状态分布$d_{\pi_\theta}$由学生策略自身诱导。当学生策略在某些状态下产生微小偏差$\epsilon$时，后续状态会偏离专家数据的覆盖范围，导致预测误差累积。
 
-\subsection{Transformer与视觉Transformer（ViT）}
+Ross等\cite{Ross2011DAgger}严格证明了BC的期望代价上界与时间步$T$呈$O(T^2)$增长：
+\begin{equation}
+  J(\pi_\theta) \le J(\pi^*) + T^2 \epsilon
+\end{equation}
+其中$\epsilon = \max_{s \in d_{\pi^*}} \ell(\pi_\theta(s), \pi^*(s))$为单步最大损失。这一$O(T^2)$的增长速率意味着：即使单步误差很小（如$\epsilon = 0.01$），在$T=500$步的长轨迹中也可能累积到灾难性水平。
 
-Transformer\cite{Vaswani2017Transformer}通过自注意力机制（Self-Attention）建模序列中任意位置对之间的依赖关系，彻底摆脱了RNN的序列递推约束，实现了完全并行化训练。其核心优势在于：（1）对长程依赖的建模能力更强——注意力权重直接连接任意两个位置，无需通过中间状态传递；（2）训练高度并行化——所有时间步可同时计算注意力与前馈输出。然而，自注意力机制的计算复杂度为$O(n^2)$（$n$为序列长度），在长序列或高分辨率输入下可能成为计算瓶颈。
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{pictures/普通行为克隆.png}
+\caption{行为克隆（BC）端到端训练流程：左侧由专家策略$\pi^*$在环境中采集观测--动作对构成数据集$\mathcal{D}$；中间将序列观测输入端到端神经网络$\pi_\theta$预测动作$\hat{a}_t$；右侧通过MSE损失$\mathcal{L} = \|a_t - \hat{a}_t\|^2$计算梯度并反向传播更新网络参数}
+\label{fig:distribution_shift}
+\end{figure}
 
-在视觉领域，Dosovitskiy等提出的Vision Transformer（ViT）\cite{Dosovitskiy2020ViT}将Transformer范式引入图像识别：将图像划分为固定大小的patch token，经线性映射后输入标准Transformer编码器。结合大规模数据预训练，ViT在多项视觉基准上取得了优异表现，展示了Transformer在视觉表征方面的强大能力。
+如图~\ref{fig:distribution_shift}所示，训练数据覆盖的状态空间（蓝色）与部署时策略实际访问的状态空间（橙色）存在偏移。在不重叠区域，策略从未见过类似状态，输出质量没有保障。Codevilla等\cite{Codevilla2019ExploringLimits}系统探索了BC在自动驾驶中的局限性，进一步证实了这一现象的普遍性。
 
-在四旋翼端到端避障方向，Xing等\cite{Xing2024VisionBackbone}系统比较了CNN、U-Net、循环结构与ViT等多种视觉backbone对避障性能的影响，指出在高速与泛化条件下ViT具备明显优势，且在ViT后加入循环模块（recurrence）能进一步改善时序表现。该工作的输出语义采用世界坐标系下的速度指令，与本文的系统设定具有较高一致性，为本文选择ViT作为空间编码器提供了直接的实验依据。
+\subsection{DAgger：数据集聚合}
 
-\subsection{结构化状态空间模型：S4与Mamba}
+DAgger（Dataset Aggregation）\cite{Ross2011DAgger}通过迭代式数据集聚合系统缓解分布偏移。算法流程如下：
 
-结构化状态空间模型（Structured State Space Model, SSM）是近年来序列建模领域的重要方向，其核心思想是基于连续时间线性状态空间方程对序列数据进行建模：
+\begin{enumerate}
+  \item 以初始BC策略$\pi_0$（或随机策略）为起点；
+  \item 第$i$轮：以混合策略$\hat{\pi}_i = \beta_i \pi^* + (1-\beta_i) \pi_i$在环境中采集数据，其中$\beta_i$为专家混合比例；
+  \item 由专家策略$\pi^*$为所有采集到的状态标注最优动作；
+  \item 将新标注数据合并到训练集$\mathcal{D}_i = \mathcal{D}_{i-1} \cup \mathcal{D}_{\text{new}}$；
+  \item 以$\mathcal{D}_i$重新训练得到$\pi_{i+1}$。
+\end{enumerate}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+  node distance=0.8cm and 1.0cm,
+  block/.style={draw, rounded corners=3pt, minimum width=2.2cm, minimum height=0.9cm, align=center, font=\small},
+  arrow/.style={->, thick, color=black!70},
+  data/.style={draw, rounded corners=3pt, fill=yellow!15, minimum width=2.2cm, minimum height=0.9cm, align=center, font=\small},
+]
+\node[block, fill=orange!15] (policy) {当前策略 $\pi_i$};
+\node[block, fill=blue!10, right=1.5cm of policy] (rollout) {在线采集\\闭环数据};
+\node[block, fill=green!10, below=of rollout] (expert) {专家标注\\$a^* = \pi^*(o)$};
+\node[data, below=of policy] (dataset) {聚合数据集\\$\mathcal{D}_i$};
+\node[block, fill=orange!10, left=1.5cm of dataset] (retrain) {重新训练\\$\pi_{i+1}$};
+
+\draw[arrow] (policy) -- (rollout);
+\draw[arrow] (rollout) -- (expert);
+\draw[arrow] (expert) -- (dataset);
+\draw[arrow] (dataset) -- (retrain);
+\draw[arrow] (retrain) |- (policy);
+
+\node[font=\scriptsize, color=gray] at (3.0, -2.5) {迭代 $i = 1, 2, \ldots, N$};
+\end{tikzpicture}
+\caption{DAgger数据聚合闭环流程}
+\label{fig:dagger_loop}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{pictures/DAgger.png}
+\caption{DAgger迭代式数据聚合全流程示意：上层为环境交互阶段，混合策略$\hat{\pi}_i = \beta_i \pi^* + (1-\beta_i)\pi_i$在环境中采集轨迹并由专家$\pi^*$修正标注；中层为数据聚合阶段，新采集数据$\mathcal{D}_{\text{new}}$与历史数据集$\mathcal{D}_i$合并；下层为训练更新阶段，以聚合数据集重训策略$\pi_{i+1}$。右侧对比图展示BC误差$O(T^2)$增长与DAgger误差$O(1)$收敛的理论差异}
+\label{fig:dagger_detail}
+\end{figure}
+
+DAgger的理论分析表明，经过$N$轮迭代后策略的期望损失上界降至$O(1)$：
+\begin{equation}
+  J(\hat{\pi}_N) \le J(\pi^*) + O\left(\frac{1}{N}\right)T \epsilon_N
+\end{equation}
+其中$\epsilon_N$为第$N$轮最优策略在聚合分布上的损失。这意味着DAgger理论上能够消除$O(T^2)$的累积效应。
+
+后续变体包括SafeDAgger\cite{Zhang2016QueryDAgger}（基于安全代理判断是否查询专家）、HG-DAgger\cite{Kelly2019HG_DAgger}（人机交互模式）等。本文采用标准DAgger框架以保持方法简洁性，具体工程实现细节见第3章。
+
+\subsection{DAgger的工程化实现口径}
+
+DAgger的理论优美，但工程实现中有多个容易出错的细节需要明确：
+
+\begin{itemize}
+  \item $\beta$混合的实现方式：本文采用"状态级混合"，即在每个控制步以概率$\beta$执行专家动作、以概率$1-\beta$执行学生动作。另一种实现方式是"轨迹级混合"（前$\beta$比例的轨迹用专家采集），但状态级混合能更好地覆盖学生策略的错误状态；
+  \item 专家标注的时机：无论实际执行的是专家还是学生动作，所有状态都由专家标注。这保证了每个状态都有正确的监督信号；
+  \item 数据不平衡处理：随着DAgger轮次增加，新增数据量远小于初始BC数据。本文的处理方式是全量重训而非增量微调，以避免遗忘效应；
+  \item 采集策略的选择：每轮新增数据偏重高速段（$\SI{9}{m/s}$、$\SI{12}{m/s}$各6条轨迹），因为这是BC基线最脆弱的区域。
+\end{itemize}
+
+
+\section{视觉表征：CNN与ViT}
+
+\subsection{卷积神经网络}
+
+卷积神经网络（CNN）\cite{Lecun1998CNN}通过局部感受野、权重共享与层级特征提取建立了视觉表征的基础范式。ResNet\cite{He2016ResNet}引入残差连接使训练更深的网络成为可能；VGG\cite{Simonyan2015VGG}以统一小卷积核展示了深度的重要性。在早期端到端避障工作中，CNN是默认的视觉编码器选择\cite{Loquercio2018DroNet,Sadeghi2017CAD2RL}。然而，CNN在全局结构关系建模方面受限于感受野大小：即使通过多层堆叠扩大理论感受野，实际有效感受野仍远小于输入尺寸\cite{Lecun1998CNN}。对于避障任务，这意味着CNN可能难以捕捉远距离障碍之间的空间关系。
+
+\subsection{视觉Transformer（ViT）}
+
+Dosovitskiy等提出的Vision Transformer（ViT）\cite{Dosovitskiy2020ViT}将Transformer\cite{Vaswani2017Transformer}范式引入图像识别：将图像划分为固定大小的patch token，经线性映射后输入标准Transformer编码器。如图~\ref{fig:vit_patch}所示，ViT通过自注意力机制建模任意patch对之间的全局依赖，突破了CNN的感受野限制。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+  node distance=0.4cm,
+]
+% 输入图像
+\node[draw, fill=blue!5, minimum width=2.4cm, minimum height=1.6cm] (img) at (0, 0) {};
+% 网格线
+\draw[gray, thin] (-0.8, -0.8) grid[step=0.4] (1.2, 0.8);
+\node[font=\scriptsize] at (0, -1.2) {输入图像 ($H{\times}W$)};
+
+% 箭头
+\draw[->, thick] (1.6, 0) -- (2.4, 0);
+
+% Patch tokens
+\foreach \i in {0,...,5} {
+  \node[draw, fill=orange!20, minimum width=0.35cm, minimum height=0.35cm] at (2.8+\i*0.45, 0.4) {};
+}
+\node[font=\scriptsize] at (4.0, -0.1) {Patch Tokens};
+\node[font=\scriptsize, color=gray] at (4.0, -0.5) {$N = HW/P^2$};
+
+% 箭头
+\draw[->, thick] (5.6, 0.2) -- (6.4, 0.2);
+\node[font=\scriptsize] at (6.0, -0.2) {线性嵌入};
+
+% Transformer编码器
+\node[draw, fill=orange!10, rounded corners=3pt, minimum width=2.2cm, minimum height=1.6cm, align=center, font=\small] at (8.0, 0.2) {Transformer\\编码器\\(自注意力)};
+
+% 箭头
+\draw[->, thick] (9.3, 0.2) -- (10.0, 0.2);
+
+% 输出
+\node[draw, fill=green!10, rounded corners=3pt, minimum width=1.2cm, minimum height=0.8cm, align=center, font=\small] at (10.8, 0.2) {特征\\向量};
+\end{tikzpicture}
+\caption{ViT的patch token化与Transformer编码流程示意}
+\label{fig:vit_patch}
+\end{figure}
+
+在四旋翼避障方向，Xing等\cite{Xing2024VisionBackbone}系统比较了多种视觉backbone，指出ViT在高速与泛化条件下具备明显优势。后续DeiT\cite{Touvron2021DeiT}通过知识蒸馏在无需大规模预训练数据的条件下提升ViT的训练效率；Swin Transformer\cite{Liu2021SwinTransformer}通过分层窗口注意力降低计算复杂度并引入多尺度特征；MAE\cite{He2022MAE}与BEiT\cite{Bao2022BEiT}进一步探索了大规模自监督预训练方法。
+
+\subsection{轻量化ViT的设计维度}
+
+在端到端控制场景中，视觉编码器的设计需要在表征能力与推理效率之间取得平衡。影响ViT效率的核心参数是patch数量$N$：自注意力的计算复杂度为$O(N^2 \cdot d)$，其中$d$为嵌入维度。表~\ref{tab:vit_complexity}展示了不同分辨率与patch size组合下的token数量及其对推理效率的影响。
+
+\begin{table}[htbp]
+\centering
+\caption{不同输入分辨率与Patch Size下的Token数量与注意力复杂度}
+\label{tab:vit_complexity}
+\zihao{5}
+\begin{tabular}{ccccc}
+\toprule
+\textbf{输入分辨率} & \textbf{Patch Size} & \textbf{Token数} $N$ & \textbf{注意力复杂度} $O(N^2)$ & \textbf{相对复杂度} \\
+\midrule
+$60 \times 90$ & $16 \times 16$ & 21 & $441$ & $1.0\times$ \\
+$60 \times 90$ & $8 \times 8$ & 84 & $7{,}056$ & $16\times$ \\
+$120 \times 180$ & $16 \times 16$ & 84 & $7{,}056$ & $16\times$ \\
+$120 \times 180$ & $8 \times 8$ & 337 & $113{,}569$ & $257\times$ \\
+$224 \times 224$ & $16 \times 16$ & 196 & $38{,}416$ & $87\times$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+本文选择$60 \times 90$输入分辨率配合两阶段卷积嵌入（而非标准patch嵌入），使第一阶段token数为$16 \times 24 = 384$，第二阶段下采样至$8 \times 12 = 96$，在保留空间细节的同时控制计算量。这一设计使得ViT编码器在NVIDIA RTX 4060 GPU上的推理延迟可控制在$\SI{5}{ms}$以内。第3章将给出各模块的详细耗时分析。
+
+
+\section{时序建模：RNN/LSTM与SSM}
+
+\subsection{LSTM的流式优势与局限}
+
+循环神经网络（RNN）\cite{Elman1990RNN}及其变体LSTM\cite{Hochreiter1997LSTM}通过门控机制选择性地保留与更新记忆状态，是端到端控制中最早用于时序聚合的模型。LSTM的单步递推形式为：
+\begin{align}
+  \mathbf{f}_t &= \sigma(\mathbf{W}_f [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_f) &\text{（遗忘门）} \\
+  \mathbf{i}_t &= \sigma(\mathbf{W}_i [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_i) &\text{（输入门）} \\
+  \mathbf{c}_t &= \mathbf{f}_t \odot \mathbf{c}_{t-1} + \mathbf{i}_t \odot \tanh(\mathbf{W}_c [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_c) &\text{（记忆更新）} \\
+  \mathbf{o}_t &= \sigma(\mathbf{W}_o [\mathbf{h}_{t-1}, \mathbf{x}_t] + \mathbf{b}_o) &\text{（输出门）} \\
+  \mathbf{h}_t &= \mathbf{o}_t \odot \tanh(\mathbf{c}_t) &\text{（隐状态）}
+\end{align}
+
+LSTM的优势在于天然支持流式递推推理：每步仅需输入当前观测并更新固定大小的隐状态$(\mathbf{h}_t, \mathbf{c}_t)$。然而，LSTM面临明确的局限：（1）长期依赖建模受限——虽然门控缓解了梯度消失，但实际中有效记忆范围通常在50--200步\cite{Hochreiter1997LSTM}；（2）训练效率低——序列依赖性阻碍并行化，训练速度远慢于Transformer；（3）部署状态管理敏感——隐状态$(\mathbf{h}_t, \mathbf{c}_t)$的管理同样面临第4章所讨论的一致性问题。
+
+\subsection{结构化状态空间模型（S4）}
+
+结构化状态空间模型（SSM）基于连续时间线性状态空间方程进行序列建模\cite{Gu2022S4}：
 \begin{equation}
   \mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) + \mathbf{B}\mathbf{x}(t), \quad \mathbf{y}(t) = \mathbf{C}\mathbf{h}(t) + \mathbf{D}\mathbf{x}(t)
   \label{eq:ssm}
 \end{equation}
-其中$\mathbf{h}(t)$为隐状态，$\mathbf{x}(t)$为输入，$\mathbf{y}(t)$为输出，$\mathbf{A}, \mathbf{B}, \mathbf{C}, \mathbf{D}$为系统参数矩阵。
+其中$\mathbf{h}(t) \in \mathbb{R}^{d_{\text{state}}}$为连续时间隐状态，$\mathbf{A} \in \mathbb{R}^{d_{\text{state}} \times d_{\text{state}}}$为状态转移矩阵，$\mathbf{B} \in \mathbb{R}^{d_{\text{state}} \times 1}$为输入投影矩阵，$\mathbf{C} \in \mathbb{R}^{1 \times d_{\text{state}}}$为输出投影矩阵。
 
-S4（Structured State Spaces for Sequence Modeling）\cite{Gu2022S4}通过对矩阵$\mathbf{A}$的结构化参数化（如HiPPO初始化与对角化分解），使得SSM能够在长序列上高效训练，同时保持$O(n)$的计算复杂度。S4在长程依赖基准（如Long Range Arena）上取得了突破性表现，成为ICLR 2022的代表性工作之一。
+S4\cite{Gu2022S4}通过对矩阵$\mathbf{A}$的HiPPO\cite{Gu2020HiPPO}结构化初始化实现了长序列上的高效训练。后续工作S5\cite{Smith2023S5}进一步简化了实现；DSS\cite{Gu2022DSS}探索了对角参数化方案。
 
-在S4的基础上，Gu与Dao提出了Mamba\cite{Gu2023Mamba}，引入\textbf{选择性机制}（Selective Mechanism）：使SSM的参数$\mathbf{B}, \mathbf{C}$与离散化步长$\Delta$依赖于输入内容，从而增强模型对不同输入的自适应选择能力。此外，Mamba设计了硬件友好的并行扫描算法，在保持线性复杂度$O(n)$的同时实现了高吞吐推理。与Transformer相比，Mamba在长序列上的推理速度可达数倍提升，且显存占用更低。
+\subsection{从连续到离散的零阶保持（ZOH）推导}
 
-对于高速闭环控制场景，Mamba具有双重价值。在\textbf{算法层面}，选择性SSM能够根据输入内容动态调整状态更新幅度，对短期历史中的关键信息（如障碍距离突变、急转弯前的预兆）进行自适应聚合。在\textbf{工程层面}，Mamba天生支持流式递推推理——离散化后的状态更新方程$\mathbf{h}_t = \bar{\mathbf{A}}\mathbf{h}_{t-1} + \bar{\mathbf{B}}\mathbf{x}_t$与LSTM具有相似的递推形式，每个控制周期仅需一次矩阵运算即可完成状态更新。然而，这也意味着Mamba在流式部署时同样依赖内部状态的正确持续传播，其状态生命周期管理必须严格与回合边界对齐。围绕这一问题建立可审计、可复现的评测范式，是将SSM用于机器人端到端控制的重要工程前提。
+在实际的离散时间系统中，需要将连续时间SSM离散化。零阶保持（Zero-Order Hold, ZOH）是最常用的离散化方法，其假设输入在采样间隔$\Delta$内保持恒定。
+
+给定连续时间方程$\mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) + \mathbf{B}\mathbf{x}(t)$，在$[t_k, t_{k+1})$区间内（$t_{k+1} = t_k + \Delta$），输入$\mathbf{x}(t) = \mathbf{x}_k$为常数。该常微分方程的解析解为：
+\begin{equation}
+  \mathbf{h}(t_{k+1}) = e^{\mathbf{A}\Delta} \mathbf{h}(t_k) + \left(\int_0^{\Delta} e^{\mathbf{A}\tau} d\tau \right) \mathbf{B} \mathbf{x}_k
+\end{equation}
+
+令$\bar{\mathbf{A}} = e^{\mathbf{A}\Delta}$为离散化后的状态转移矩阵，$\bar{\mathbf{B}} = \left(\int_0^{\Delta} e^{\mathbf{A}\tau} d\tau \right) \mathbf{B} = (\mathbf{A})^{-1}(e^{\mathbf{A}\Delta} - \mathbf{I})\mathbf{B}$为离散化后的输入矩阵，则离散化后的递推方程为：
+\begin{equation}
+  \mathbf{h}_k = \bar{\mathbf{A}} \mathbf{h}_{k-1} + \bar{\mathbf{B}} \mathbf{x}_k, \quad \mathbf{y}_k = \mathbf{C} \mathbf{h}_k
+  \label{eq:ssm_discrete}
+\end{equation}
+
+这一形式揭示了SSM与LSTM的结构相似性：两者都是"状态 $\times$ 转移矩阵 + 输入 $\times$ 投影矩阵"的线性递推。然而，SSM的关键优势在于：（1）矩阵$\bar{\mathbf{A}}$可以通过对角化实现高效并行扫描\cite{Gu2022S4}；（2）连续时间参数化为离散化步长$\Delta$提供了自适应调节的空间。
+
+\subsection{Mamba的选择性机制}
+
+在S4的基础上，Gu与Dao提出Mamba\cite{Gu2023Mamba}，核心创新是选择性机制：使参数$\mathbf{B}_t, \mathbf{C}_t$与离散化步长$\Delta_t$依赖于输入内容，增强模型对不同输入的自适应选择能力：
+\begin{equation}
+  \Delta_t = \text{softplus}(\mathbf{W}_\Delta \mathbf{x}_t + \mathbf{b}_\Delta), \quad
+  \mathbf{B}_t = \mathbf{W}_B \mathbf{x}_t, \quad
+  \mathbf{C}_t = \mathbf{W}_C \mathbf{x}_t
+  \label{eq:mamba_selective}
+\end{equation}
+
+选择性机制的直觉理解如下：
+
+\begin{itemize}
+  \item $\Delta_t$控制"记忆保留时间"：当$\Delta_t$较大时，$\bar{\mathbf{A}}_t = e^{\mathbf{A}\Delta_t}$趋近于零矩阵，历史信息衰减加速，模型更倾向于"忘记过去、关注当前"；当$\Delta_t$较小时，历史信息保留更多；
+  \item $\mathbf{B}_t$控制"什么信息写入"记忆：输入相关的$\mathbf{B}_t$使模型能够选择性地将当前输入的特定维度写入隐状态；
+  \item $\mathbf{C}_t$控制"从记忆中读取什么"信息：输入相关的$\mathbf{C}_t$使模型能够根据当前上下文从隐状态中提取最相关的信息。
+\end{itemize}
+
+对于控制任务而言，这种选择性机制具有天然的适配性：当障碍接近时，$\Delta_t$可以自适应地增大以提高对最新观测的敏感度（快速反应）；当飞行路径平坦时，$\Delta_t$减小以更好地利用历史信息进行平滑预测。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.95\textwidth]{pictures/Mamba.png}
+\caption{SSM/Mamba的三层架构总览。上层：连续时间状态空间方程$\mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) + \mathbf{B}\mathbf{x}(t)$，由矩阵$\mathbf{A}$驱动状态转移，$\mathbf{B}$控制输入投影，$\mathbf{C}$控制输出读取；中层：零阶保持（ZOH）离散化，将连续参数转化为离散递推$\bar{\mathbf{A}} = e^{\mathbf{A}\Delta}$；下层：Mamba选择性机制，$\Delta_t$、$\mathbf{B}_t$、$\mathbf{C}_t$均依赖输入$\mathbf{x}_t$动态生成。右侧展示了自适应控制直觉与LSTM门控结构的类比}
+\label{fig:mamba_overview}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+  block/.style={draw, rounded corners=3pt, minimum width=1.6cm, minimum height=0.8cm, align=center, font=\small},
+  arrow/.style={->, thick, color=black!70},
+  state/.style={draw, circle, minimum size=0.8cm, font=\small},
+]
+% 时间步 t-1
+\node[block, fill=blue!10] (x0) at (0, 0) {输入 $t{-}1$};
+\node[state, fill=orange!15] (h0) at (0, 1.5) {$\mathbf{h}_{t-1}$};
+\node[block, fill=green!10] (y0) at (0, 3.0) {输出 $t{-}1$};
+\draw[arrow] (x0) -- node[right, font=\scriptsize] {$\bar{\mathbf{B}}_{t-1}$} (h0);
+\draw[arrow] (h0) -- node[right, font=\scriptsize] {$\mathbf{C}_{t-1}$} (y0);
+% 时间步 t
+\node[block, fill=blue!10] (x1) at (3.5, 0) {输入 $t$};
+\node[state, fill=orange!15] (h1) at (3.5, 1.5) {$\mathbf{h}_{t}$};
+\node[block, fill=green!10] (y1) at (3.5, 3.0) {输出 $t$};
+\draw[arrow] (x1) -- node[right, font=\scriptsize] {$\bar{\mathbf{B}}_{t}$} (h1);
+\draw[arrow] (h1) -- node[right, font=\scriptsize] {$\mathbf{C}_{t}$} (y1);
+% 时间步 t+1
+\node[block, fill=blue!10] (x2) at (7.0, 0) {输入 $t{+}1$};
+\node[state, fill=orange!15] (h2) at (7.0, 1.5) {$\mathbf{h}_{t+1}$};
+\node[block, fill=green!10] (y2) at (7.0, 3.0) {输出 $t{+}1$};
+\draw[arrow] (x2) -- node[right, font=\scriptsize] {$\bar{\mathbf{B}}_{t+1}$} (h2);
+\draw[arrow] (h2) -- node[right, font=\scriptsize] {$\mathbf{C}_{t+1}$} (y2);
+% 状态传播
+\draw[arrow, red!60, very thick] (h0) -- node[above, font=\scriptsize, color=red!60] {$\bar{\mathbf{A}}$} (h1);
+\draw[arrow, red!60, very thick] (h1) -- node[above, font=\scriptsize, color=red!60] {$\bar{\mathbf{A}}$} (h2);
+
+\node[font=\scriptsize, color=red!60] at (3.5, -0.8) {$\mathbf{h}_t = \bar{\mathbf{A}}\mathbf{h}_{t-1} + \bar{\mathbf{B}}_t\mathbf{x}_t$, \quad $\mathbf{y}_t = \mathbf{C}_t\mathbf{h}_t$};
+\end{tikzpicture}
+\caption{SSM/Mamba离散化后的状态更新框图。下标$t$表示$\bar{\mathbf{B}}_t$、$\mathbf{C}_t$随输入动态变化（选择性机制）。}
+\label{fig:ssm_block}
+\end{figure}
+
+离散化后的递推形式（图~\ref{fig:ssm_block}）与LSTM具有相似的递推结构。Mamba-2\cite{Dao2024Mamba2}进一步揭示了SSM与注意力机制之间的对偶性，统一了两种范式的理论基础。
+
+\subsection{SSM对控制任务的意义}
+
+表~\ref{tab:ssm_control_map}从四个维度分析了SSM特性与控制任务需求之间的映射关系。
+
+\begin{table}[htbp]
+\centering
+\caption{SSM特性与高速避障控制需求的映射}
+\label{tab:ssm_control_map}
+\zihao{5}
+\begin{tabular}{p{2.5cm}p{4.5cm}p{5.0cm}}
+\toprule
+\textbf{SSM特性} & \textbf{技术含义} & \textbf{对控制任务的价值} \\
+\midrule
+线性递推 & $O(n)$复杂度，流式推理友好 & 满足实时控制频率约束 \\
+选择性机制 & $\Delta_t, \mathbf{B}_t, \mathbf{C}_t$依赖输入 & 自适应调节观测噪声抑制强度 \\
+固定大小隐状态 & 状态维度不随序列长度增长 & 内存占用可预测，适合嵌入式部署 \\
+连续时间参数化 & $\bar{\mathbf{A}} = e^{\mathbf{A}\Delta}$ & 对不等间距控制步自然适配 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+如图~\ref{fig:attn_vs_ssm}所示，自注意力机制的$O(n^2)$复杂度与SSM的$O(n)$复杂度形成鲜明对比，这一效率优势对实时控制至关重要。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=7.5cm, height=4.5cm,
+  xlabel={序列长度 $n$},
+  ylabel={相对计算量},
+  xmin=0, xmax=100,
+  ymin=0, ymax=10000,
+  xtick={0,25,50,75,100},
+  legend pos=north west,
+  legend style={font=\small},
+  grid=major,
+  grid style={gray!20},
+]
+\addplot[domain=0:100, samples=50, thick, color=red!70, dashed] {x^2};
+\addlegendentry{Attention $O(n^2)$}
+\addplot[domain=0:100, samples=50, thick, color=blue!70] {x*30};
+\addlegendentry{SSM $O(n)$}
+\addplot[domain=0:100, samples=50, thick, color=green!60!black, dashdotted] {x*x*0.3 + x*10};
+\addlegendentry{LSTM $O(n \cdot d^2)$}
+\end{axis}
+\end{tikzpicture}
+\caption{Attention、SSM与LSTM的序列长度--计算量关系对比（示意）}
+\label{fig:attn_vs_ssm}
+\end{figure}
 
 
-\section{视觉Backbone演进：CNN$\rightarrow$ViT$\rightarrow$MambaVision}
+\section{MambaVision：混合Mamba-Transformer视觉骨干}
 
-端到端避障策略的前端视觉编码器决定了对障碍结构、纹理变化、遮挡与噪声的表征上限。视觉backbone的演进经历了从CNN到ViT再到混合架构的过程。
+MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}是面向视觉应用的混合Mamba-Transformer backbone。其核心设计包括：（1）对Mamba模块进行面向视觉特征建模的重新设计，将一维序列建模扩展到二维空间特征；（2）通过系统消融验证在不同阶段融合自注意力块与Mamba块的最优配比——浅层使用Mamba捕捉局部空间特征，深层使用自注意力建模全局关系；（3）在ImageNet分类、COCO检测与ADE20K分割等基准上展示优于纯ViT与纯Mamba方案的效率--精度权衡。
 
-\subsection{卷积神经网络（CNN）}
-
-卷积神经网络\cite{Lecun1998CNN}通过局部感受野、权重共享与层级特征提取建立了视觉表征的基础范式。ResNet\cite{He2016ResNet}引入的残差连接使得训练更深的网络成为可能，在图像分类、目标检测与语义分割等任务上取得了广泛成功。CNN的优势在于：（1）局部归纳偏置使其在小数据量时也具备较好泛化；（2）计算高度并行且部署效率高；（3）工程成熟度高，工具链完善。在早期端到端避障工作中，CNN是默认的视觉编码器选择\cite{Loquercio2018DroNet,Sadeghi2017CAD2RL}。
-
-然而，CNN在全局结构关系建模方面受限于感受野大小：即便通过深层堆叠扩大感受野，信息仍需逐层传递，对于需要全局上下文（如远处障碍与当前运动方向的关系）的场景可能存在不足。
-
-\subsection{视觉Transformer（ViT）的表征优势}
-
-ViT\cite{Dosovitskiy2020ViT}通过将图像切分为patch token并用Transformer编码器处理，以自注意力机制建模任意patch对之间的全局依赖，突破了CNN的感受野限制。在大规模预训练数据支持下，ViT在多项视觉基准上达到或超越了CNN的表现。
-
-对于端到端避障任务，ViT的全局注意力机制在以下场景中具有潜在优势：（1）复杂障碍布局需要全局结构理解（如多个障碍的相对位置关系）；（2）纹理变化、光照变化与遮挡条件下需要更鲁棒的表征；（3）分布外场景中需要更强的泛化能力。Xing等\cite{Xing2024VisionBackbone}的实验比较也支持了ViT在高速避障任务中的优势。
-
-然而，ViT的$O(n^2)$自注意力复杂度（$n$为patch数量）在高分辨率输入下可能成为推理瓶颈，尤其是在机载算力受限的部署场景中。这构成了进一步探索更高效视觉backbone的动机。
-
-\subsection{MambaVision：混合Mamba-Transformer视觉骨干}
-
-近期，Hatamizadeh与Kautz提出MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}：一种针对视觉应用定制的混合Mamba-Transformer backbone。MambaVision的核心设计包括：（1）对Mamba模块进行面向视觉特征建模的重新设计，使其更适合二维空间结构的处理；（2）通过系统化消融实验验证在不同阶段融合ViT自注意力块与Mamba块的最优配比；（3）在ImageNet分类、COCO检测与ADE20K分割等多项基准上展示了优于纯ViT与纯Mamba方案的效率--精度权衡。MambaVision于CVPR 2025发表，其代码与预训练模型已开源，为工程复现与任务迁移提供了直接入口。
-
-对于本文的高速端到端避障系统而言，将空间编码器替换为MambaVision的动机包括三个方面。首先，在\textbf{效率}方面，MambaVision在同等精度下相较纯ViT可降低计算量与推理延迟，这对机载部署的时间预算至关重要。其次，在\textbf{架构统一性}方面，本文已采用Mamba作为时序聚合模块；若空间编码器也采用MambaVision（其中包含Mamba组件），则整体架构将形成更统一的"SSM友好"结构，有助于减少架构异质性与工程复杂度。最后，在\textbf{泛化能力}方面，MambaVision的混合注意力+SSM设计是否能在分布外场景中提供更鲁棒的表征，是本文需要通过控制变量实验验证的关键假设。上述收益均需通过严格实验评测确认，而非先验假设。
+Vision Mamba（Vim）\cite{Zhu2024VisionMamba}则采用另一条路线：以双向状态空间模型替代ViT中的自注意力机制，实现纯SSM视觉编码。两种方案分别代表了"混合"与"纯SSM"两条视觉骨干设计路线，本文在第5章对此进行控制变量实验。
 
 
-\section{安全性、平滑性与部署侧约束机制}
+\section{仿真平台与数据来源}
 
-学习型控制在真实部署中的核心顾虑之一是安全性：策略的输出可能因训练数据分布的局限、模型泛化的不足或环境扰动而产生不安全动作。同时，在高速避障中，更敏捷的策略可能伴随更高频率的控制指令抖动（jerk），影响执行器寿命、能耗与飞行平滑性。
+\subsection{Flightmare仿真平台}
 
-\subsection{安全学习控制研究概述}
+本文所有实验在Flightmare高保真仿真平台\cite{Song2021Flightmare}中完成。Flightmare的设计强调物理引擎与渲染引擎的解耦：物理仿真可以在不启动渲染的情况下以极高速率运行（用于大规模数据生成），也可以启动渲染以支持视觉观测生成。与AirSim\cite{Shah2018AirSim}和RotorS\cite{Furrer2016RotorS}等其他无人机仿真器相比，Flightmare以"物理--渲染解耦"的设计在数据生成效率上具有显著优势。Agilicious\cite{Foehn2022Agilicious}提供了开放软硬件一体化平台，覆盖从MPC到神经网络控制的系统化验证。
 
-Brunke等在Annual Review的综述中系统总结了从学习控制到安全强化学习的主要路线、挑战与开放问题\cite{Brunke2022SafeLearningReview}。总体而言，安全方法可分为三大类别：（1）\textbf{训练时约束}——在目标函数或策略更新中引入安全惩罚、约束优化或拉格朗日对偶方法，使策略在训练过程中就倾向于满足安全约束；（2）\textbf{运行时证书与滤波}——对策略输出进行可行性检查与最小修改，确保实际执行的动作满足安全约束；（3）\textbf{基于模型的安全回退与混合控制}——在学习策略不可信时切换到经验证安全的备份控制器。每种路线各有优劣：训练时约束可能限制策略探索空间，运行时滤波需要可靠的安全集估计，而混合控制则需要安全控制器的设计与切换逻辑。
+\subsection{评测环境}
 
-\subsection{控制障碍函数与MPC证书}
+评测环境包含两类障碍分布，如表~\ref{tab:env_config}所示：
 
-控制障碍函数（Control Barrier Function, CBF）为系统安全约束提供了可证明的形式化工具。CBF定义了一个安全集$\mathcal{C} = \{\mathbf{x} : h(\mathbf{x}) \geq 0\}$，并通过约束$\dot{h}(\mathbf{x}, \mathbf{u}) + \alpha(h(\mathbf{x})) \geq 0$保证系统状态始终保持在安全集内。Cheng等提出RL-CBF框架\cite{Cheng2019RLwithCBF}，将CBF安全约束嵌入强化学习的策略优化过程中，使得学习到的策略在追求任务目标的同时满足安全性。
+\begin{table}[htbp]
+\centering
+\caption{评测环境配置}
+\label{tab:env_config}
+\zihao{5}
+\begin{tabular}{p{2.5cm}p{2.5cm}p{6.0cm}}
+\toprule
+\textbf{环境名称} & \textbf{分布类型} & \textbf{障碍特征} \\
+\midrule
+Spheres & 同分布（ID） & 三维空间中随机分布的球体障碍，训练数据在该环境中生成。障碍半径与密度参数化控制。 \\
+Trees & 分布外（OOD） & 树状结构障碍：细长圆柱模拟树干 + 半球冠层。策略从未在该环境中训练，测试零样本迁移能力。 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-另一方面，Wabersich与Zeilinger提出MPSC（Model Predictive Safety Certification）框架\cite{Wabersich2018MPSC}，采用不同的思路：不修改策略训练过程，而是在部署时对策略输出进行MPC可行性证书验证——若策略的候选动作满足约束则直接执行，否则求解一个最小修改优化问题以找到既满足安全约束又尽量接近原始策略输出的动作。MPSC的优势在于对策略训练无侵入性，可作为"即插即用"的安全层。
+设置两类环境的目的是分别评估策略的"训练分布内性能"和"分布外泛化能力"。Trees环境的独特挑战在于：（1）树干在低分辨率深度图中仅占少数像素，容易遗漏；（2）冠层的形状与训练分布差异大，可能导致距离估计偏差。
 
-\subsection{部署侧平滑与速率限制}
+\begin{figure}[htbp]
+\centering
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{pictures/Spheres.png}
+\centerline{(a) Spheres环境（同分布）}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.48\textwidth}
+\centering
+\includegraphics[width=\textwidth]{pictures/Trees.png}
+\centerline{(b) Trees环境（分布外）}
+\end{minipage}
+\caption{Flightmare仿真平台中两类评测环境的实拍截图。(a) Spheres环境：三维空间中随机分布不同半径的球体障碍，训练数据在该环境中生成；(b) Trees环境：由树干与冠层构成的自然场景，策略从未在此环境中训练，用于测试零样本迁移泛化能力}
+\label{fig:env_screenshots}
+\end{figure}
 
-在高速端到端避障的实际部署中，策略的敏捷性提升可能伴随更高的指令变化率。过大的jerk不仅影响执行器寿命与能耗，还会导致飞行器姿态振荡，降低可控性。与训练侧约束相比，部署侧平滑机制具有实现简单、可调可控、对策略训练无侵入等工程优势。
+\subsection{特权信息专家策略}
 
-常见的部署侧策略包括：（1）\textbf{速率限制}——限制相邻两个控制周期之间控制量变化的最大幅度；（2）\textbf{低通滤波}——对策略输出进行时域平滑，抑制高频抖动；（3）\textbf{风险自适应约束}——根据当前环境风险等级动态调整约束强度（高风险区放宽限制以保留敏捷性，低风险区增强平滑以节省能耗）。本文的RACS（Rate-Adaptive Control Smoother）模块属于第一与第三种路线的结合：当前版本以动态速率限制为核心，根据最小深度观测值调整相邻控制周期间的指令变化上界约束——障碍接近时放宽限制以保留敏捷性，远离障碍时增强平滑以降低抖动。该模块定位为部署侧的轻量平滑增强组件，虽不提供严格可证明的安全性保证，但通过可控的指令变化约束在实际系统中有效改善jerk并增强可用性，后续可扩展为基于碰撞概率或TTC的风险自适应版本。
+训练数据由特权信息专家策略在Spheres环境中生成。与端到端策略不同，专家策略在每个控制步可访问完整环境信息（无人机精确位置/速度、所有障碍物的位置/几何参数），通过候选速度采样与碰撞检测生成高质量速度指令。算法~\ref{alg:expert}给出专家策略的伪代码。
+
+\begin{algorithm}[htbp]
+\caption{特权信息专家策略}
+\label{alg:expert}
+\begin{algorithmic}[1]
+\Require 无人机状态 $(\mathbf{p}_t, \mathbf{v}_t, q_t)$，障碍集合 $\mathcal{O}_{\text{env}}$，目标速度 $v^{\text{target}}$
+\Ensure 专家速度指令 $\mathbf{v}_t^*$
+\State \textbf{// 候选速度采样}
+\State $\mathcal{V}_{\text{cand}} \leftarrow$ 在目标速度方向锥体内均匀采样 $K$ 个候选方向
+\For{每个候选方向 $\hat{\mathbf{d}}_k \in \mathcal{V}_{\text{cand}}$}
+  \State 构造候选速度 $\mathbf{v}_k = v^{\text{target}} \cdot \hat{\mathbf{d}}_k$
+  \State \textbf{// 碰撞检测与安全裕度评估}
+  \State $c_k \leftarrow \min_{\mathbf{o} \in \mathcal{O}_{\text{env}}} \text{clearance}(\mathbf{p}_t + \mathbf{v}_k \cdot \Delta t_{\text{lookahead}}, \mathbf{o})$
+  \State \textbf{// 代价函数：安全性 + 目标方向对齐 + 平滑性}
+  \State $\text{cost}_k \leftarrow -\alpha_1 c_k + \alpha_2 \|\hat{\mathbf{d}}_k - \hat{\mathbf{x}}\|_2 + \alpha_3 \|\mathbf{v}_k - \mathbf{v}_{t-1}^*\|_2$
+\EndFor
+\State $k^* \leftarrow \arg\min_k \text{cost}_k$
+\State \Return $\mathbf{v}_t^* = \mathbf{v}_{k^*}$
+\end{algorithmic}
+\end{algorithm}
+
+表~\ref{tab:expert_params}给出专家策略的超参数配置。
+
+\begin{table}[htbp]
+\centering
+\caption{特权信息专家策略超参数}
+\label{tab:expert_params}
+\zihao{5}
+\begin{tabular}{lcc}
+\toprule
+\textbf{参数} & \textbf{符号} & \textbf{数值} \\
+\midrule
+候选方向采样数 & $K$ & 128 \\
+前视时间 & $\Delta t_{\text{lookahead}}$ & $\SI{0.5}{s}$ \\
+安全裕度权重 & $\alpha_1$ & 1.0 \\
+方向对齐权重 & $\alpha_2$ & 0.3 \\
+平滑性权重 & $\alpha_3$ & 0.1 \\
+采样锥体半角 & -- & $60^\circ$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{数据采集管线}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+  node distance=0.6cm and 0.8cm,
+  block/.style={draw, rounded corners=3pt, minimum width=2.4cm, minimum height=0.9cm, align=center, font=\small},
+  arrow/.style={->, thick, color=black!70},
+  data/.style={draw, rounded corners=3pt, fill=yellow!10, minimum width=2.4cm, minimum height=0.9cm, align=center, font=\small},
+]
+\node[block, fill=blue!10] (scene) {场景随机化\\(Spheres环境)};
+\node[block, fill=green!10, right=of scene] (expert) {特权信息\\专家策略};
+\node[block, fill=orange!10, right=of expert] (sim) {Flightmare\\闭环仿真};
+\node[data, right=of sim] (traj) {轨迹数据\\$(D_t, s_t, a_t^*)$};
+\node[data, below=0.8cm of traj] (dataset) {训练数据集\\(585条轨迹)};
+
+\draw[arrow] (scene) -- (expert);
+\draw[arrow] (expert) -- (sim);
+\draw[arrow] (sim) -- (traj);
+\draw[arrow] (traj) -- (dataset);
+
+\node[font=\scriptsize, color=gray] at (5.5, -2.0) {专家可访问完整环境信息（位置、速度、障碍几何）};
+\end{tikzpicture}
+\caption{基于Flightmare与特权信息专家的数据采集管线}
+\label{fig:data_pipeline}
+\end{figure}
+
+如图~\ref{fig:data_pipeline}所示，训练数据由特权信息专家在Spheres环境中生成。每条轨迹包含深度图像$D_t$、无人机状态$s_t$与专家速度指令$a_t^*$的时间序列。训练数据集包含约585条专家轨迹，覆盖5个速度档（$\SI{3}{m/s}$--$\SI{12}{m/s}$），轨迹长度在200--800步之间。注意，Trees环境不参与任何训练数据的生成，仅用于零样本OOD评测。
 
 
-\section{国内外研究现状总结与本文切入点}
+\section{评测协议与指标}
 
-在展开国内外研究现状讨论之前，表~\ref{tab:route_compare}从系统范式、训练方法、时序建模与视觉编码四个维度对本章涉及的主要技术路线进行了横向对比，以帮助读者快速把握各路线的核心特征与适用场景。
+本节固定全篇统一的评测协议与指标定义。后续各章实验直接引用本节表格与定义，不再重复。
+
+\subsection{统一评测协议}
+
+\begin{table}[htbp]
+\centering
+\caption{统一评测协议}
+\label{tab:eval_protocol_unified}
+\zihao{5}
+\begin{tabular}{lc}
+\toprule
+\textbf{参数} & \textbf{设置} \\
+\midrule
+目标速度档位 & 3, 5, 7, 9, 12 m/s \\
+每档试验次数 & 10次 \\
+回合终止距离 & 沿$X$轴 58--60 m \\
+超时限制 & $\tau_{\max} = \SI{40}{s}$ \\
+碰撞处理 & 不终止回合，持续记录 \\
+状态管理 & KeepState（回合级重置） \\
+测试环境 & Spheres（ID） + Trees（OOD） \\
+随机种子 & 固定（PyTorch + NumPy + CUDA确定性） \\
+硬件配置 & NVIDIA RTX 4060 GPU (8GB) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{指标定义}
+
+表~\ref{tab:metric_def}给出了本文使用的所有评测指标的严格定义。
+
+\begin{table}[htbp]
+\centering
+\caption{评测指标定义与计算口径}
+\label{tab:metric_def}
+\zihao{5}
+\begin{tabular}{p{2.5cm}p{5.5cm}p{2.5cm}p{2.0cm}}
+\toprule
+\textbf{指标名称} & \textbf{定义} & \textbf{单位} & \textbf{统计方式} \\
+\midrule
+全程碰撞率 (Collision Rate) & $\sum_{t=1}^{T}\mathbb{1}[\text{collision}_t=1] / T$ & \% & 10次均值$\pm$std \\
+碰撞事件次数 (Collision Count) & 碰撞标志上升沿计数 & 次/回合 & 10次均值$\pm$std \\
+成功率 (Success Rate) & 超时限内到达终点的回合比例 & \% & 10次比例 \\
+指令抖动 (Command Jerk) & $\|\mathbf{v}_t - \mathbf{v}_{t-1}\|_2$ 回合内均值 & m/s & 10次均值$\pm$std \\
+推理时间 & 单步模型前向推理耗时 & ms & 中位数 \\
+横向漂移 (Mean Y Drift) & $\frac{1}{T}\sum_{t=1}^{T}|y_t|$ & m & 10次均值 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{指标计算伪代码}
+
+为确保评测指标的计算可复现，本节给出关键指标的伪代码实现。
+
+碰撞事件次数的计算采用上升沿检测：
+\begin{equation}
+  \text{Collision Count} = \sum_{t=2}^{T} \mathbb{1}[\text{collision}_t = 1 \wedge \text{collision}_{t-1} = 0]
+  \label{eq:collision_count_ch2}
+\end{equation}
+
+\begin{algorithm}[htbp]
+\caption{碰撞事件次数计算（上升沿检测）}
+\label{alg:collision_count}
+\begin{algorithmic}[1]
+\Require 碰撞标志序列 $\texttt{collision}[1..T] \in \{0, 1\}^T$
+\Ensure 碰撞事件次数 $\texttt{count}$
+\State $\texttt{count} \leftarrow 0$
+\For{$t = 2$ \textbf{to} $T$}
+  \If{$\texttt{collision}[t] = 1$ \textbf{and} $\texttt{collision}[t-1] = 0$}
+    \State $\texttt{count} \leftarrow \texttt{count} + 1$ \Comment{检测到上升沿}
+  \EndIf
+\EndFor
+\State \Return $\texttt{count}$
+\end{algorithmic}
+\end{algorithm}
+
+如图~\ref{fig:collision_edge}所示，连续碰撞帧视为同一次碰撞事件，仅统计上升沿以避免重复计数。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+]
+% 时间轴
+\draw[->, thick] (0, 0) -- (12, 0) node[right, font=\small] {时间 $t$};
+\draw[->, thick] (0, 0) -- (0, 1.8) node[above, font=\small] {碰撞标志};
+
+% 碰撞信号
+\draw[very thick, blue!70] (0, 0) -- (2, 0) -- (2, 1.2) -- (4, 1.2) -- (4, 0) -- (7, 0) -- (7, 1.2) -- (8.5, 1.2) -- (8.5, 0) -- (11, 0);
+
+% 上升沿标记
+\draw[->, red!70, very thick] (2, -0.5) -- (2, 0);
+\node[font=\scriptsize, color=red!70] at (2, -0.8) {上升沿1};
+\draw[->, red!70, very thick] (7, -0.5) -- (7, 0);
+\node[font=\scriptsize, color=red!70] at (7, -0.8) {上升沿2};
+
+% 标注
+\node[font=\scriptsize, color=blue!70] at (3, 1.6) {碰撞事件1};
+\node[font=\scriptsize, color=blue!70] at (7.75, 1.6) {碰撞事件2};
+
+% Collision Count
+\node[draw, rounded corners=2pt, fill=yellow!10, font=\small] at (6, -1.6) {Collision Count = 2（仅统计上升沿）};
+\end{tikzpicture}
+\caption{碰撞事件次数的上升沿检测计算示意}
+\label{fig:collision_edge}
+\end{figure}
+
+\begin{algorithm}[htbp]
+\caption{Command Jerk计算}
+\label{alg:jerk_calc}
+\begin{algorithmic}[1]
+\Require 速度指令序列 $\mathbf{v}[1..T] \in \mathbb{R}^{T \times 3}$
+\Ensure 平均Jerk $\bar{J}$
+\State $\texttt{jerk\_sum} \leftarrow 0$
+\For{$t = 2$ \textbf{to} $T$}
+  \State $\texttt{jerk\_sum} \leftarrow \texttt{jerk\_sum} + \|\mathbf{v}[t] - \mathbf{v}[t-1]\|_2$
+\EndFor
+\State $\bar{J} \leftarrow \texttt{jerk\_sum} / (T - 1)$
+\State \Return $\bar{J}$
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[htbp]
+\caption{横向漂移（Mean Y Drift）计算}
+\label{alg:drift_calc}
+\begin{algorithmic}[1]
+\Require 位置序列 $\mathbf{p}[1..T] \in \mathbb{R}^{T \times 3}$
+\Ensure 平均横向漂移 $\bar{D}_y$
+\State $\bar{D}_y \leftarrow \frac{1}{T} \sum_{t=1}^{T} |p_y[t]|$ \Comment{$p_y$为$Y$轴分量}
+\State \Return $\bar{D}_y$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{统计显著性与不确定性报告}
+
+本文评测中每个配置进行10次独立试验（固定种子但不同初始位置），报告均值$\pm$标准差。采用这一方案而非更复杂的统计检验（如$t$-test或bootstrap置信区间）的原因在于：
+
+\begin{enumerate}
+  \item 样本量限制：每档仅10次试验，样本量不满足正态性假设的可靠性要求；
+  \item 效应量显著：本文的主要对比（如KeepState vs ResetState的碰撞率差异为$0\%$对$90\%$）效应量远超统计噪声；
+  \item 标准差的信息量：标准差直接反映策略行为的稳定性，是衡量工程部署可靠性的关键指标——高标准差意味着策略行为不可预测，即使均值尚可，工程上也不可接受。
+\end{enumerate}
+
+\subsection{评测可审计规范}
+
+为确保实验结论的可复现性与可追溯性，本文建立以下评测可审计规范：
+\begin{enumerate}
+  \item 随机种子固定：所有实验固定随机种子（包括PyTorch、NumPy、CUDA确定性模式与环境初始化种子）；
+  \item 环境参数记录：每次评测自动记录环境类型、障碍密度参数、目标速度档位与回合终止条件等关键配置；
+  \item 状态重置时机：明确记录序列模型内部状态的重置时机（仅在回合边界），并通过运行时断言确保回合内状态的连续传播（详见第4章）；
+  \item 版本号固化：记录策略网络权重文件的哈希值、代码版本号与依赖库版本；
+  \item 控制周期分布：记录每次试验中所有控制步的$\Delta t$时间间隔分布，用于排除系统负载差异造成的混淆因素。
+\end{enumerate}
+
+上述规范贯穿本文所有实验，确保评测结论不受实现细节污染。
+
+
+\section{相关工作综述}
+
+\subsection{端到端视觉飞行控制}
+
+端到端控制通常以"视觉到控制"为核心。早期工作DroNet\cite{Loquercio2018DroNet}将CNN映射用于城市导航；CAD2RL\cite{Sadeghi2017CAD2RL}与Deep Drone Racing\cite{Kaufmann2018DeepDroneRacing}验证了仿真到现实迁移的可能性；Gandhi等\cite{Gandhi2017CollisionDrone}通过碰撞数据自监督学习避障；Kaufmann等的Deep Drone Acrobatics\cite{Kaufmann2020DeepDroneAcrobatics}将端到端扩展到极限机动动作。Loquercio等\cite{Loquercio2021HighSpeedWild}使用特权信息专家+域随机化实现了野外高速飞行；Kaufmann等的Swift系统\cite{Kaufmann2023SwiftNature}在竞速对抗中超越人类冠军。Pan等\cite{Pan2018AgileAutonomous}在自主驾驶场景中验证了端到端深度模仿学习的敏捷性。Shah等\cite{Shah2023GNM}提出的通用导航模型进一步将端到端范式推广到跨机器人平台。上述工作共同构成了"仿真学习+特权专家+域随机化"的标准范式。
+
+\subsection{模块化自主飞行}
+
+模块化方案的代表性工作包括：ORB-SLAM2\cite{MurArtal2017ORBSLAM2}和ORB-SLAM3\cite{Campos2021ORBSLAM3}（稀疏特征SLAM）、VINS-Mono\cite{Qin2018VINSMONO}（视觉惯性估计）、LSD-SLAM\cite{Engel2014LSDSLAM}（大尺度直接SLAM）、RRT*\cite{Karaman2011SamplingOptimal}（渐近最优采样规划）、FASTER\cite{Faust2018FASTER}（安全回退轨迹）。SLAM方面，Cadena等\cite{Cadena2016SLAMSurvey}全面综述了从经典到鲁棒感知时代的SLAM发展历程。轨迹优化方面，Mellinger与Kumar\cite{Mellinger2011MinSnapTrajectory}的最小snap轨迹生成、Richter等\cite{Richter2016MinSnapPoly}的多项式轨迹规划奠定了理论基础；MPC方面，Kamel等\cite{Kamel2017NMPC}和Neunert等\cite{Neunert2016MPC_Quadrotor}分别将非线性MPC应用于四旋翼轨迹跟踪。
+
+国内方面，高翔等\cite{Gao2019SLAMSurvey}从特征法与直接法两条路线出发，系统分析了视觉SLAM在不同场景下的精度--效率权衡，并指出语义信息融合是下一阶段的关键方向；张弓等\cite{Zhang2018VIOSLAM}将视觉惯性SLAM方法按前端跟踪策略与后端优化框架进行分类，明确了紧耦合方案在高动态平台上的鲁棒性优势；吴潇等\cite{Wu2022QuadSLAM}针对无人机平台的振动干扰、快速运动模糊与有限算力三个特殊挑战，对比分析了轻量级视觉SLAM方案的可部署性。在轨迹规划方面，Zhou等提出Fast-Planner\cite{Zhou2019FastPlanner}，采用运动学路径搜索与B样条轨迹优化的两阶段方案实现未知环境中的在线安全飞行；其后续工作EGO-Planner\cite{Zhou2021EGOPlanner}进一步消除了对欧几里得符号距离场（ESDF）的依赖，直接从障碍点云计算碰撞梯度，将规划计算量降低一个数量级。何承坤等\cite{He2021QuadTrajectory}从最小snap多项式、B样条、安全走廊三条技术路线出发，对比分析了四旋翼轨迹优化在实时性与安全性之间的设计折中；张涛等\cite{Zhang2020AutoPilotSurvey}将无人机自主飞行控制技术按感知、决策、执行三层架构进行归纳，指出多传感器融合与自适应控制的集成是高可靠自主飞行的核心难题；刘小雄等\cite{Liu2020QuadControl}从反应式避障、基于地图的全局规划、学习型策略三个层面对四旋翼自主导航技术进行分层分析，指出端到端学习方法在低延迟要求下具有潜在优势但可解释性不足。
+
+这些方法在低中速结构化场景中可靠，但在高速密集障碍环境中面临延迟与误差传播的固有局限。
+
+\subsection{安全性与部署侧约束}
+
+Brunke等\cite{Brunke2022SafeLearningReview}系统总结了安全学习控制的主要路线。控制障碍函数（CBF）\cite{Ames2019CBFSurvey}为安全约束提供形式化工具；Cheng等\cite{Cheng2019RLwithCBF}将CBF嵌入强化学习；Wabersich等\cite{Wabersich2018MPSC}提出MPSC预测安全滤波；Fisac等\cite{Fisac2019SafeRL}建立了通用的安全学习框架。Garc\'{i}a与Fern\'{a}ndez\cite{GarciaPineda2015SafeRLSurvey}从更广泛的视角全面综述了安全强化学习。Dalal等\cite{Dalal2018SafeExploration}探索了连续动作空间中的安全探索方法。
+
+在国内，雷志勇等\cite{Lei2020DRLAvoidance}将深度Q网络（DQN）与连续动作空间策略梯度方法应用于无人机避障任务，验证了稀疏激光雷达输入下DRL策略的实时决策能力；陈杰等\cite{Chen2023DRLDroneReview}从状态表征、奖励函数设计、训练稳定性三个维度对DRL在无人机导航中的应用进行分类评述，指出仿真到实际迁移（Sim-to-Real）的鲁棒性瓶颈是制约DRL落地的主要因素；严旭等\cite{Yan2021DRLObstacle}提出将深度图与惯性测量数据融合作为DRL状态输入的方案，在三维动态障碍场景中实现了优于传统势场法的避障成功率；李超等\cite{Li2022RLUAV}对比分析了基于值函数与基于策略梯度两类强化学习方法在无人机路径规划中的收敛速度与最终性能差异，发现近端策略优化（PPO）在连续动作空间中表现最为稳定；朱福利等\cite{Zhu2021DeepLearningUAV}从目标检测、语义分割、深度估计三个视觉子任务出发，分析了深度学习在无人机感知系统中的部署约束与加速策略，指出模型压缩与边缘推理是实现机载实时处理的关键技术。
+
+\subsection{Sim-to-Real迁移}
+
+Sim-to-Real迁移是端到端控制从仿真走向实际部署的关键桥梁。Tobin等\cite{Tobin2017DomainRandomization}提出域随机化方法，通过在仿真中随机化视觉属性来弥合仿真与现实的差距。Peng等\cite{Peng2018SimtoRealRL}进一步将动力学随机化引入机器人控制迁移。Molchanov等\cite{Molchanov2019SimRL}验证了低层鲁棒控制策略向多个四旋翼平台的迁移。Zhao等\cite{Zhao2020SimtoReal}对深度强化学习的Sim-to-Real迁移进行了全面综述。本文当前工作在Flightmare仿真中完成验证，Sim-to-Real迁移作为未来工作方向在第5章讨论。
+
+\subsection{方法谱系总结}
+
+表~\ref{tab:route_compare}从四个维度对主要技术路线进行横向对比。
 
 \begin{table}[htbp]
 \centering
@@ -168,65 +734,40 @@ Brunke等在Annual Review的综述中系统总结了从学习控制到安全强�
 系统范式 &
 模块化（感知--规划--控制） &
 端到端（视觉$\to$控制） &
-可解释、可验证、模块可替换 &
-低延迟、架构简洁、可吸收大规模仿真数据 \\
+可解释、可验证 &
+低延迟、架构简洁 \\
 \midrule
 训练方法 &
 行为克隆（BC） &
-强化学习（RL） &
-训练稳定、样本高效、实现简单 &
-可在线探索、策略上限更高、可优化长期回报 \\
+DAgger/强化学习 &
+训练稳定、样本高效 &
+闭环分布覆盖更好 \\
 \midrule
 时序建模 &
 LSTM/RNN &
 SSM（Mamba） &
-流式推理天然支持、工程成熟 &
-线性复杂度、高吞吐、选择性机制增强内容感知 \\
+工程成熟、流式支持 &
+线性复杂度、选择性机制 \\
 \midrule
 视觉编码 &
 ViT &
 MambaVision &
-全局注意力、强表征、大规模预训练生态 &
-效率--精度更优、与时序SSM架构统一、部署友好 \\
+全局注意力、强表征 &
+效率更优、架构统一 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{国外研究趋势}
 
-国际上，敏捷无人机研究在近年呈现出"系统化验证+端到端方法+高性能仿真平台支撑"的清晰趋势：
+\section{小结：设计需求}
+
+综合本章的预备知识与相关工作分析，对后续创新章节提出以下设计需求：
 
 \begin{itemize}
-  \item 端到端高速飞行与野外复杂场景验证推动了方法从实验室走向真实落地\cite{Loquercio2021HighSpeedWild}。特权信息专家+仿真训练+域随机化的组合已成为标准范式。
-  \item 强化学习在竞速对抗中达到人类冠军级别\cite{Kaufmann2023SwiftNature}，强调"仿真学习+真实数据校正"的工程闭环。
-  \item 开源平台（如Agilicious\cite{Foehn2022Agilicious}）与高性能仿真器（如Flightmare\cite{Song2021Flightmare}）持续降低研究门槛并提升可复现性。
-  \item 在网络结构方面，视觉编码从CNN逐步走向ViT\cite{Dosovitskiy2020ViT}，并进一步出现MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}等混合骨干；时序建模从LSTM走向结构化状态空间模型（S4\cite{Gu2022S4}、Mamba\cite{Gu2023Mamba}），"更高效的表征与建模"正在成为新的关注焦点。
+  \item 需要低延迟的时序建模能力，以支撑高速闭环控制（$\rightarrow$ 第3章：ViT+Mamba）；
+  \item 需要闭环数据增强机制以缓解BC的分布偏移（$\rightarrow$ 第3章：DAgger）；
+  \item 需要部署侧平滑约束以控制敏捷性带来的指令抖动（$\rightarrow$ 第3章：RACS）；
+  \item 需要严格的流式部署一致性验证机制（$\rightarrow$ 第4章：状态生命周期管理）；
+  \item 需要在安全/平滑/延迟/显存四维做统一对比，评估SSM视觉骨干的可行性（$\rightarrow$ 第5章：MambaVision）；
+  \item 需要可复现的指标口径与评测可审计规范（$\rightarrow$ 本章表~\ref{tab:eval_protocol_unified}与表~\ref{tab:metric_def}）。
 \end{itemize}
-
-\subsection{国内研究现状}
-
-国内在无人机自主导航相关技术方面积累深厚，以下按三条典型路线进行归纳式综述。
-
-\subsubsection{三维路径规划与轨迹优化工程化}
-
-国内在采样规划与轨迹优化的工程化方面投入持续。在采样规划层面，李志刚等针对多旋翼无人机避障航迹规划提出改进RRT算法，引入动力学约束与代价优化以提升工程可用性\cite{Li2019MultiRotorRRT}；王猛等结合改进粒子群优化与滚动策略实现三维路径规划中的实时避障与平滑性提升\cite{Wang2020UAVPath}。在轨迹优化层面，浙江大学高飞团队的系列工作具有代表性：Zhou等提出Fast-Planner，通过B样条参数化与梯度优化实现高效四旋翼轨迹生成\cite{Zhou2019FastPlanner}；进一步的EGO-Planner摆脱了对欧氏有符号距离场（ESDF）的依赖，直接以障碍信息驱动梯度优化，在未知环境中实现了更高效的局部规划\cite{Zhou2021EGOPlanner}。何承坤等在四旋翼轨迹优化与跟踪控制综述中系统梳理了国内外在最优控制、微分平坦与数值优化三条技术路线上的研究进展\cite{He2021QuadTrajectory}。总体而言，国内在规划工程化方面的研究活跃度高、成果丰富，但多数工作仍以模块化范式为前提，较少涉及端到端框架下的规划能力。
-
-\subsubsection{视觉SLAM/VIO工程部署}
-
-视觉SLAM与VIO是无人机自主导航的基础能力模块。高翔等在"视觉SLAM研究进展"中从稀疏/半稠密/稠密地图构建、前后端优化架构到开放问题进行了系统梳理\cite{Gao2019SLAMSurvey}；张弓等从滤波与优化两大技术路线总结了移动机器人视觉惯性SLAM的发展脉络\cite{Zhang2018VIOSLAM}。值得注意的是，VINS-Mono\cite{Qin2018VINSMONO}虽以英文发表，但由港科大秦通等中国学者主导，其紧耦合VIO方案已成为国内外无人机状态估计的标准参考实现之一。国内在VIO/VI-SLAM的系统综述、算法改进与嵌入式部署方面积累扎实，为模块化导航提供了可靠的状态估计基座；但这些方法在高速运动模糊与极限工况下仍面临本章前述的固有局限。
-
-\subsubsection{学习型避障与端到端方法探索}
-
-国内在学习型避障方面的研究近年来增长迅速。雷志勇等基于深度强化学习探索了视觉避障方法\cite{Lei2020DRLAvoidance}，代表了国内将DRL应用于无人机避障的早期工作。陈杰等在"深度强化学习在无人机自主导航中的研究进展"综述中系统总结了DRL从离散动作空间到连续控制、从仿真训练到Sim-to-Real迁移的技术演进，并对国内相关课题组的代表性成果进行了归纳\cite{Chen2023DRLDroneReview}。总体来看，国内在学习型避障方面呈现以下特征：（1）以深度强化学习路线为主，模仿学习方面的工作相对较少；（2）多数工作以低速或中速场景为验证条件，对高速（$>\SI{7}{m/s}$）密集障碍环境的系统化闭环验证尚不充分；（3）对流式部署一致性、状态生命周期管理等工程可信性问题的关注较少。这些空白为本文的研究切入提供了明确的定位依据。
-
-\subsection{研究趋势与本文切入点}
-
-综合国内外现状，可以归纳出三个清晰趋势：
-
-\begin{enumerate}
-  \item \textbf{更高速、更复杂环境、更强闭环鲁棒性}成为评价标准——方法的有效性需要在高速密集障碍、分布外场景等挑战性条件下得到验证。
-  \item \textbf{端到端方法从"能跑"走向"可复现、可审计、可部署"}——尤其是流式推理一致性、状态生命周期管理与工程防护等问题受到越来越多关注。
-  \item \textbf{视觉backbone与时序模型同时演进}——ViT推动了表征升级，SSM（S4/Mamba）推动了高效序列建模，MambaVision进一步把SSM思想带入视觉backbone，为"空间--时间统一建模"提供了新方向。
-\end{enumerate}
-
-结合上述趋势与高速避障的关键挑战，本文的切入点在于：围绕"时序建模能力+流式部署一致性+部署侧约束"构建端到端闭环系统，并在此基础上探索将空间编码器升级为MambaVision的可行性与收益边界。本文强调严格控制变量与可审计实现细节，以确保评测结论可信、可复现，并为后续工程部署与架构选型提供系统性依据。

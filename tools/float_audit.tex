@@ -1,0 +1,29 @@
+% Float audit hook: records the *first* page where \ref{<label>} is used.
+% This file is included only when \FLOATAUDIT is defined.
+%
+% It writes markers into the active .aux stream:
+%   \floataudit@firstref{<label>}{<page>}
+
+\makeatletter
+\providecommand{\floataudit@firstref}[2]{} % swallow aux markers when read back
+\newcommand{\floataudit@writefirstref}[1]{%
+  \begingroup
+  \edef\floataudit@lbl{#1}%
+  \@ifundefined{floataudit@seen@\floataudit@lbl}{%
+    \expandafter\gdef\csname floataudit@seen@\floataudit@lbl\endcsname{1}%
+    \protected@write\@auxout{}{%
+      \string\floataudit@firstref{\floataudit@lbl}{\number\value{page}}%
+    }%
+  }{}%
+  \endgroup
+}
+
+% Apply after other packages (e.g. hyperref) so our wrapper sticks.
+\AtBeginDocument{%
+  \let\floataudit@orig@ref\ref
+  \renewcommand{\ref}[1]{%
+    \floataudit@writefirstref{#1}%
+    \floataudit@orig@ref{#1}%
+  }%
+}
+\makeatother

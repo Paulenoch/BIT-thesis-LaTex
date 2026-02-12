@@ -1,251 +1,188 @@
-\chapter{流式部署一致性与状态生命周期管理}
+\chapter{全SSM架构探索与全文总结}
 
-端到端控制系统在部署时需要以流式（streaming）方式运行：每个控制周期仅接收当前观测并输出控制指令。当策略包含序列模型（如LSTM、Mamba等）时，流式推理依赖内部状态的正确持续传播。本章系统分析训练模式与部署模式的语义差异如何导致状态管理错误，揭示"无记忆退化"现象的机理与后果，提出回合边界级状态生命周期管理协议与硬防护机制，并通过定量实验验证其对评测结论可信性的决定性影响。
+\section{本章引言}
 
-\section{训练与部署的语义差异}
+前两章分别确立了ViT+Mamba策略网络的有效性（第3章）与流式部署一致性机制（第4章）。在此基础上，一个自然的架构设计问题浮现：能否将空间与时间维度的建模统一到同一架构范式下？
 
-\subsection{Batch训练模式}
+ViT作为空间编码器具有强表征能力，但其$O(n^2)$自注意力复杂度在机载算力受限的部署场景中可能成为瓶颈。近期MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}将Mamba思想引入视觉backbone，在保持高表征能力的同时实现更优的效率--精度权衡。Vision Mamba（Vim）\cite{Zhu2024VisionMamba}则以纯双向SSM替代自注意力进行视觉编码。
 
-在训练阶段，策略网络以定长序列（本文为$T=150$步）进行前向计算。序列模型接收完整序列$\{\mathbf{x}_1, \mathbf{x}_2, \ldots, \mathbf{x}_T\}$，通过并行扫描（Mamba）或循环展开（LSTM）一次性计算所有时间步的输出。在每条训练轨迹的起始处，内部状态$\mathbf{h}_0$被初始化为零向量，随后在序列内逐步更新。
+若将视觉编码器替换为MambaVision，整体架构将形成"SSM（空间）+ SSM（时间）"的全SSM架构。本章定位为架构统一性的前瞻探索：其价值不仅在于性能比较，更在于考察空间--时间同构建模在端到端视觉避障任务中的可行性与能力边界。
 
-Batch模式的关键特征是：
-\begin{itemize}
-  \item 整条序列一次性可见，模型可利用未来上下文（在训练时）；
-  \item 状态在序列起始初始化、序列内连续传播、序列结束后丢弃；
-  \item 通过并行算法实现高效训练。
-\end{itemize}
 
-\subsection{Streaming推理模式}
+\section{方法：MambaVision集成}
 
-在部署阶段，系统以流式方式运行：每个控制周期仅输入当前时刻的观测$\mathbf{x}_t$，通过递推更新内部状态$\mathbf{h}_t$得到当前输出$\mathbf{y}_t$。这意味着：
-\begin{itemize}
-  \item 每步仅处理单帧数据（$T=1$）；
-  \item 内部状态必须跨控制周期持续传播；
-  \item 模型无法访问未来信息，完全依赖历史状态。
-\end{itemize}
+\subsection{MambaVision视觉骨干}
 
-\subsection{两种模式的等价性条件}
-
-当且仅当以下条件同时成立时，Batch模式与Streaming模式的输出在数学上严格等价：
+MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}采用分层设计，在不同阶段融合Mamba块与自注意力块。其核心创新包括：
 \begin{enumerate}
-  \item 内部状态$\mathbf{h}_0$的初始化方式一致；
-  \item 同一回合内状态的更新不被中断或重置；
-  \item 输入序列的内容与顺序一致。
-\end{enumerate}
-违反上述任一条件（尤其是第二条）即会破坏等价性，导致训练与部署的行为不一致。
-
-
-\section{错误状态重置导致无记忆退化：机理分析}
-
-\subsection{问题描述}
-
-在工程实现中，一个常见但隐蔽的错误是：在每个控制步或每次推理调用时重置序列模型的内部状态$\mathbf{h}_t$为初始值（通常为零向量）。这种"逐步重置"（Step-wise Reset）模式在某些推理框架的默认配置中可能自动触发，或因开发者对状态管理的疏忽而被引入。
-
-\subsection{退化机理}
-
-当内部状态在每个控制步被重置时，递推方程退化为：
-\begin{equation}
-  \mathbf{h}_t^{\text{reset}} = \bar{\mathbf{A}} \cdot \mathbf{0} + \bar{\mathbf{B}}_t \mathbf{x}_t = \bar{\mathbf{B}}_t \mathbf{x}_t
-  \label{eq:reset_degenerate}
-\end{equation}
-此时模型输出仅取决于当前帧的输入$\mathbf{x}_t$，完全丧失了对历史信息的记忆能力。序列模型退化为一个\textbf{无记忆策略}（memoryless policy），等价于一个不含时序模块的单帧前馈网络。
-
-\subsection{闭环后果}
-
-无记忆退化在闭环控制中引发以下级联效应：
-\begin{enumerate}
-  \item \textbf{时序聚合失效}：策略无法利用短时历史信息抑制单帧观测噪声、捕捉障碍相对运动趋势或稳定控制输出；
-  \item \textbf{控制指令抖动加剧}：缺乏时序平滑能力导致相邻控制步的输出高度不相关，指令变化幅度增大；
-  \item \textbf{系统性漂移}：持续的单帧决策在闭环中累积偏差，无人机逐渐偏离目标航线产生系统性横向漂移；
-  \item \textbf{碰撞率急剧上升}：漂移与抖动的叠加最终导致避障失败。
+  \item 面向视觉特征的Mamba模块重设计，使SSM适配二维空间结构；
+  \item 系统消融验证各阶段Mamba/Attention配比的最优方案；
+  \item 在ImageNet分类、COCO检测等基准上取得优于纯ViT与纯Mamba的效率--精度权衡。
 \end{enumerate}
 
-\subsection{问题的隐蔽性}
+\subsection{接口对齐}
 
-该问题的危险性在于其隐蔽性：
-\begin{itemize}
-  \item 在离线评测（如验证集上的MSE）中，逐步重置与正确管理的差异可能不明显，因为离线指标通常基于Batch前向计算；
-  \item 在低速或简单场景中，无记忆策略仍可能"勉强工作"，掩盖了问题的严重性；
-  \item 只有在高速、密集障碍的闭环评测中，退化效应才会充分暴露。
-\end{itemize}
-这意味着如果不进行严格的状态管理验证，研究者可能在不知情的情况下报告被工程实现细节严重污染的实验结论。
+替换视觉编码器需确保输出维度与后续时序模块的接口一致。MambaVision的最终特征经全局池化后对齐至512维，与ViT输出维度一致，随后同样与轻量状态拼接、投影至$d_{\text{model}}=192$维输入Temporal Mamba。
 
 
-\section{回合边界级状态生命周期协议}
+\section{控制变量实验设计}
 
-针对上述问题，本文提出并实现回合边界级（Episode-level）状态生命周期管理协议。
-
-\subsection{核心原则}
-
-协议的核心原则为：序列模型的内部状态仅在回合边界进行初始化，回合内保持连续传播。形式化地：
-\begin{equation}
-  \mathbf{h}_t = \begin{cases}
-    \mathbf{0} & \text{若 } t = t_{\text{episode\_start}} \\
-    \bar{\mathbf{A}} \mathbf{h}_{t-1} + \bar{\mathbf{B}}_t \mathbf{x}_t & \text{若 } t > t_{\text{episode\_start}}
-  \end{cases}
-  \label{eq:lifecycle}
-\end{equation}
-
-\subsection{实现细节}
-
-算法~\ref{alg:lifecycle}给出了状态生命周期管理的完整实现。
-
-\begin{algorithm}[htbp]
-\caption{回合边界级状态生命周期管理}
-\label{alg:lifecycle}
-\begin{algorithmic}[1]
-\Require 策略网络 $\pi$，推理参数 \texttt{inf\_params}
-\State \textbf{// 在仿真器 reset 信号触发时调用}
-\Procedure{OnEpisodeReset}{}
-  \State $\texttt{inf\_params.state} \leftarrow \mathbf{0}$ \Comment{清零内部状态}
-  \State $\texttt{inf\_params.seqlen\_offset} \leftarrow 0$ \Comment{重置序列偏移}
-\EndProcedure
-\State
-\State \textbf{// 在每个控制步调用}
-\Procedure{OnControlStep}{$\mathbf{x}_t$}
-  \State \textbf{assert} 未触发逐步重置标志 \Comment{硬防护}
-  \State $\mathbf{y}_t \leftarrow \pi.\text{forward}(\mathbf{x}_t, \texttt{inf\_params})$ \Comment{前向推理}
-  \State \Comment{状态由 forward 内部自动更新至 inf\_params}
-  \State \Return $\mathbf{y}_t$
-\EndProcedure
-\end{algorithmic}
-\end{algorithm}
-
-关键实现要点包括：
-\begin{itemize}
-  \item \texttt{inference\_params}对象在回合开始时初始化，此后跨所有控制步持续传递；
-  \item \texttt{seqlen\_offset}记录当前回合内的累积步数，用于Mamba内部的位置感知；
-  \item 回合内的每次前向推理均读取并更新同一状态对象，确保时序信息的连续传播。
-\end{itemize}
-
-
-\section{硬防护机制与可审计日志}
-
-仅依赖开发者的自觉遵守无法保证状态管理协议在所有场景下被正确执行。本文引入以下硬防护机制：
-
-\subsection{运行时断言}
-
-在每个控制步执行前，运行时断言检查当前是否处于"逐步重置"模式。若检测到非安全模式（如推理框架的默认行为触发了状态重置），且未显式开启调试开关，系统\textbf{直接报错终止}（fail-fast），而非静默地以错误模式继续执行。该设计确保任何状态管理错误都会被立即发现而非在实验结束后才暴露。
-
-\subsection{配置锁定}
-
-评测开始时，将请求配置（包括状态管理模式、回合终止条件、速度档位等）写入日志并锁定。运行过程中任何对关键配置的修改尝试都会触发告警，确保实验过程中配置不被意外覆盖。
-
-\subsection{可审计日志}
-
-每次试验的日志包含以下字段：
-\begin{itemize}
-  \item 请求配置与实际生效配置的对比记录；
-  \item 每个回合的状态重置时刻记录（应仅出现在回合边界）；
-  \item 推理参数（\texttt{inference\_params}）的生命周期事件；
-  \item 模型权重文件的哈希值与代码版本号。
-\end{itemize}
-通过上述日志，事后审计可以验证整个实验过程中状态管理协议是否被正确执行。
-
-
-\section{实验验证：KeepState与ResetState对比}
-
-为定量验证状态生命周期管理对系统性能的影响，本文设置以下消融实验：
-\begin{itemize}
-  \item \textbf{KeepState}（正确模式）：仅在回合边界重置内部状态，回合内连续传播；
-  \item \textbf{ResetState}（错误模式）：在每个控制步重置内部状态为零向量。
-\end{itemize}
-
-两种模式使用\textbf{完全相同的策略权重}（同一训练好的ViT+Mamba模型），仅状态管理方式不同。实验在相同的环境配置与速度设定下进行。
-
-\subsection{定量结果}
-
-表~\ref{tab:state_ablation_thesis}给出了消融实验的核心结果。
+MambaVision替换实验采用严格的控制变量设计，如表~\ref{tab:control_var}所示。
 
 \begin{table}[htbp]
 \centering
-\caption{流式状态管理消融实验（KeepState vs ResetState）}
-\label{tab:state_ablation_thesis}
+\caption{MambaVision替换实验控制变量声明}
+\label{tab:control_var}
 \zihao{5}
-\begin{tabular}{lccc}
+\begin{tabular}{p{3.5cm}p{5.5cm}p{2.5cm}}
 \toprule
-\textbf{模式} & \textbf{Collision Rate (\%)} & \textbf{Mean Jerk (m/s)} & \textbf{Mean Y Drift (m)} \\
+\textbf{变量类别} & \textbf{具体内容} & \textbf{状态} \\
 \midrule
-Mamba (KeepState)  & 0.0  & 0.198 & 0.022 \\
-Mamba (ResetState) & 90.0 & 0.376 & 0.770 \\
+\multicolumn{3}{l}{\textit{保持不变（Fixed）}} \\
+\quad 时序模块 & 4层Mamba ($d_{\text{model}}=192$) & Fixed \\
+\quad 训练流程 & BC，三阶段课程学习 & Fixed \\
+\quad 训练数据 & Spheres环境585条轨迹 & Fixed \\
+\quad 评测协议 & 5速度档，10次/档，Spheres+Trees & Fixed \\
+\quad 部署一致性 & KeepState协议 & Fixed \\
+\quad 控制头 & 线性层$\rightarrow$$\mathbb{R}^3$ & Fixed \\
+\midrule
+\multicolumn{3}{l}{\textit{唯一变量（Varied）}} \\
+\quad 视觉编码器 & ViT $\leftrightarrow$ MambaVision & \textbf{Varied} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-结果表明：
+通过该设计，性能差异可严格归因于视觉编码器的架构差异。评测维度包括四个方面：
 \begin{enumerate}
-  \item \textbf{碰撞率从0\%跃升至90\%}：逐步重置导致策略完全丧失避障能力，几乎整个飞行过程都处于碰撞状态；
-  \item \textbf{指令抖动增加约90\%}：Mean Jerk从0.198上升至0.376，反映了无记忆策略输出的高度不稳定性；
-  \item \textbf{系统性横向漂移}：Mean Y Drift从$\SI{0.022}{m}$上升至$\SI{0.770}{m}$，表明策略在缺乏时序信息的情况下产生了持续性的横向偏离。
+  \item 安全性：碰撞率与碰撞事件次数；
+  \item OOD泛化：Trees零样本性能；
+  \item 推理效率：推理延迟与GPU显存占用；
+  \item 平滑性：Command Jerk变化。
 \end{enumerate}
 
-其中Mean Y Drift定义为回合内横向位置绝对值的时间平均：
-\begin{equation}
-  \text{Mean Y Drift} = \frac{1}{T} \sum_{t=1}^{T} |y_t|
-  \label{eq:y_drift}
-\end{equation}
-$\SI{0.770}{m}$的平均横向偏移在密集障碍环境中已足以显著增加擦碰与碰撞风险。
 
-\subsection{漂移可视化}
+\section{案例研究与实验}
 
-图~\ref{fig:drift_thesis}给出了KeepState与ResetState两种模式下的横向漂移可视化对比。
+% ============================================================
+% TODO: MambaVision实验尚未完成，以下为实验框架与待填充位置
+% 实验完成后需补充：
+% 1. MambaVision vs ViT 在 Spheres/Trees 各速度档的碰撞率/碰撞次数对比表
+% 2. 推理时间与显存占用对比柱状图
+% 3. Command Jerk 对比
+% 4. 定性分析与讨论
+% ============================================================
 
-\begin{figure}[htbp]
+\subsection{性能对比（安全性与成功率）}
+
+[TODO: 待MambaVision实验完成后补充]
+
+\begin{table}[htbp]
 \centering
-\includegraphics[width=0.85\textwidth]{Image/fig_drift_reset_vs_episode.png}
-\caption{流式推理中KeepState与ResetState的漂移对比。ResetState（逐步重置）导致显著的横向漂移趋势，反映出时序模型在无记忆退化下的闭环不稳定行为。}
-\label{fig:drift_thesis}
-\end{figure}
+\caption{MambaVision vs ViT 安全性对比（Spheres + Trees）}
+\label{tab:mv_safety}
+\zihao{5}
+\begin{tabular}{lcccccc}
+\toprule
+ & \multicolumn{5}{c}{\textbf{目标速度 (m/s)}} \\
+\cmidrule(lr){2-6}
+\textbf{方法} & 3 & 5 & 7 & 9 & 12 \\
+\midrule
+\multicolumn{6}{l}{\textit{Spheres Collision Rate (\%)}} \\
+ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+\midrule
+\multicolumn{6}{l}{\textit{Trees Collision Rate (\%)}} \\
+ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\item \zihao{6} \textbf{TODO}：待实验完成后填入精确数值。
+\end{tablenotes}
+\end{table}
 
-图~\ref{fig:lateral_drift}进一步展示了横向漂移的累积过程。
+\subsection{部署指标（延迟与显存）}
 
-\begin{figure}[htbp]
+[TODO: 待MambaVision实验完成后补充]
+
+% TODO: 推理延迟/显存柱状图
+% TODO: Accuracy-Throughput Pareto图
+
+\begin{table}[htbp]
 \centering
-\includegraphics[width=0.85\textwidth]{Image/fig_f_lateral_drift.png}
-\caption{KeepState与ResetState模式下横向漂移的累积对比}
-\label{fig:lateral_drift}
-\end{figure}
+\caption{推理效率对比}
+\label{tab:mv_efficiency}
+\zihao{5}
+\begin{tabular}{lccc}
+\toprule
+\textbf{方法} & \textbf{单步推理 (ms)} & \textbf{GPU显存 (MB)} & \textbf{参数量 (M)} \\
+\midrule
+ViT+Mamba & \textbf{--} & \textbf{--} & 3.50 \\
+MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} \\
+\bottomrule
+\end{tabular}
+\begin{tablenotes}
+\item \zihao{6} \textbf{TODO}：待实验完成后填入精确数值。
+\end{tablenotes}
+\end{table}
+
+\subsection{分辨率与序列长度扩展（可选）}
+
+[TODO: 可选实验，若时间允许]
+
+该实验旨在验证SSM视觉骨干在更高分辨率或更长序列条件下是否保持线性复杂度优势。
 
 
-\section{Batch--Streaming等价性验证}
+\section{讨论与局限}
 
-除了通过闭环性能差异间接验证外，本文还提出一种直接的等价性单元测试方法：对同一条轨迹数据，分别以Batch模式和Streaming模式进行前向计算，比较两种模式输出的差异。
+\subsection{MambaVision vs ViT的适用场景}
 
-具体地，给定一条测试轨迹$\{\mathbf{x}_1, \ldots, \mathbf{x}_T\}$：
-\begin{enumerate}
-  \item 以Batch模式一次性前向计算，得到输出序列$\{\mathbf{y}_1^{\text{batch}}, \ldots, \mathbf{y}_T^{\text{batch}}\}$；
-  \item 以Streaming模式逐步前向计算（初始状态为零向量，回合内连续传播），得到$\{\mathbf{y}_1^{\text{stream}}, \ldots, \mathbf{y}_T^{\text{stream}}\}$；
-  \item 计算逐步输出差异：
-  \begin{equation}
-    \Delta \mathbf{v}_t = \|\mathbf{y}_t^{\text{batch}} - \mathbf{y}_t^{\text{stream}}\|_2
-    \label{eq:bs_diff}
-  \end{equation}
-\end{enumerate}
+[TODO: 待实验结果出炉后，基于数据讨论以下问题]
 
-在正确实现下，$\Delta \mathbf{v}_t$应在浮点精度范围内（$< 10^{-5}$）。若$\Delta \mathbf{v}_t$显著偏离零，则表明Streaming模式的状态管理存在问题。该测试可作为持续集成（CI）中的回归测试，在代码变更后自动验证Batch--Streaming等价性。
-
-
-\section{普适性讨论}
-
-\subsection{不同序列模型的影响}
-
-本文揭示的状态管理问题\textbf{并非Mamba独有}，而是所有依赖内部状态进行递推推理的序列模型的通用风险：
 \begin{itemize}
-  \item \textbf{LSTM/GRU}：隐状态$(\mathbf{h}_t, \mathbf{c}_t)$在流式推理中同样需要跨步传播，逐步重置会导致相同的无记忆退化；
-  \item \textbf{Mamba}：选择性状态空间模型的内部状态$\mathbf{h}_t$遵循相同的递推更新规则，状态管理需求与LSTM一致；
-  \item \textbf{Transformer}：虽然标准Transformer不依赖递推状态，但如果使用KV-cache进行增量推理，错误的cache管理同样会导致行为异常。
+  \item 在什么速度/障碍条件下MambaVision更好？
+  \item 在什么条件下ViT更稳定？
+  \item 效率提升是否足以弥补可能的精度差异？
 \end{itemize}
 
-\subsection{贡献定位}
+\subsection{未来方向}
 
-本章的贡献定位为：提出一种\textbf{通用的状态生命周期管理范式与防护协议}，而非仅针对某一特定模型的工程修复。该范式具有以下普适价值：
+\begin{itemize}
+  \item 更强的预训练：在大规模视觉数据上预训练MambaVision骨干后迁移到避障任务；
+  \item Sim-to-Real迁移：结合域随机化与真实飞行数据校正，部署到真实四旋翼平台；
+  \item 安全过滤：叠加CBF\cite{Ames2019CBFSurvey}/MPC安全滤波\cite{Wabersich2018MPSC}，提供形式化安全保证；
+  \item 动态障碍：扩展评测环境以包含动态障碍物。
+\end{itemize}
+
+
+\section{全文总结与展望}
+
+\subsection{主要工作与核心发现}
+
+本文面向高速端到端视觉避障控制任务，围绕"时序建模升级与训练方法、流式部署一致性、全SSM架构探索"三个核心维度，构建了完整的端到端闭环控制系统，主要贡献如下：
+
+（1）ViT+Mamba高速端到端避障策略（第3章）。构建以ViT空间编码、Mamba时序聚合与线性控制头为核心的策略网络。在5个速度档与Spheres/Trees双环境下，ViT+Mamba在高速段碰撞率与碰撞事件次数显著优于ViT+LSTM基线，且分布外泛化优势同样显著。DAgger闭环数据增强进一步降低碰撞频次，跨试验标准差显著收敛。RACS动态速率限制以低于0.1ms的开销实现Jerk显著降低。
+
+（2）流式部署一致性与状态生命周期管理（第4章）。系统揭示了序列模型在端到端控制流式部署中的关键陷阱：状态管理错误导致碰撞率从0\%飙升至90\%、Mean Y Drift从0.022m增至0.770m。提出回合边界级状态管理协议与硬防护机制（运行时断言、配置锁定、可审计日志），将部署一致性从经验问题转化为可验证问题。
+
+（3）全SSM架构探索（第5章）。在保持时序模块与训练流程完全不变的条件下，将视觉编码器替换为MambaVision，形成空间--时间统一的SSM架构，为理解SSM在视觉--运动控制任务中的能力边界提供实证基础。
+
+\subsection{不足与局限性}
+
 \begin{enumerate}
-  \item 为端到端控制系统中使用序列模型的研究者提供明确的工程规范；
-  \item 通过硬防护机制将"隐蔽的工程Bug"转化为"可检测的运行时错误"；
-  \item 通过Batch--Streaming等价性测试提供系统化的验证手段；
-  \item 通过可审计日志确保实验结论的可追溯性。
+  \item 仿真环境局限：所有实验在Flightmare仿真平台中完成，尚未进行Sim-to-Real验证；
+  \item 静态障碍假设：评测环境中障碍物均为静态，未涉及动态障碍避障；
+  \item 单一传感模态：仅使用单目深度图像，未融合RGB、激光雷达或事件相机等多模态信息；
+  \item DAgger规模有限：仅3轮迭代，每轮18条轨迹，DAgger的上界有待更大规模验证；
+  \item RACS的启发式特性：$\delta_t$基于最小深度启发式规则，缺乏形式化安全保证。
 \end{enumerate}
 
-\subsection{对评测可信度的启示}
+\subsection{未来工作展望}
 
-本章的实验结果（碰撞率从0\%到90\%的跃变）深刻说明：在端到端控制研究中，\textbf{工程实现细节可以决定性地影响实验结论}。若研究者在不知情的情况下使用了错误的状态管理模式，可能得出"序列模型无助于避障"甚至"序列模型有害"的错误结论。本文通过严格的状态生命周期管理与硬防护机制，确保本文所有实验结论建立在正确的部署语义之上——性能差异反映的是模型能力差异，而非实现缺陷。
+\begin{enumerate}
+  \item 仿真到真实迁移：结合域随机化、系统辨识与真实飞行数据校正，将策略部署到真实四旋翼平台；
+  \item 动态障碍应对：扩展评测环境以包含动态障碍物，探索时变环境中的避障能力；
+  \item 多模态融合：探索将RGB图像、事件相机等多模态信息融合到视觉编码器中；
+  \item RACS安全升级：将启发式规则升级为基于TTC或碰撞概率的数据驱动风险估计，或与CBF/MPSC融合；
+  \item DAgger扩展：增加迭代轮次与采集规模，在更困难环境配置下探索收益上界。
+\end{enumerate}

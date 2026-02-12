@@ -1,113 +1,289 @@
 \chapter{绪论}
 
-\section{研究背景与问题提出}
+\section{研究背景与应用场景}
 
-四旋翼无人机凭借高机动性、垂直起降与悬停能力，在巡检、搜索救援、环境监测、应急通信以及室内外自主作业等任务中具有广泛应用前景。然而，当飞行任务从"低速、开阔、静态"逐步走向"高速、密集、动态"的复杂场景时，自主飞行面临的核心矛盾会显著加剧：一方面，高速会放大传感噪声、执行延迟与建模误差在闭环中的累积效应；另一方面，密集障碍环境要求系统在极短时间内完成感知、决策与控制，并在强不确定性下保持鲁棒性。Loquercio等在Learning High-Speed Flight in the Wild中明确指出：传统将导航拆分为感知、建图、规划等子模块的做法在低速时效果较好，但在高速密集环境中会因为流水线式延迟与误差传递而变得脆弱；他们提出端到端映射以降低延迟、提升鲁棒性，并展示了在复杂真实环境中的高速飞行能力\cite{Loquercio2021HighSpeedWild}。
-
-在机器人与无人机自主飞行领域，主流方案长期采用模块化范式（Perception--Planning--Control），并通过视觉/视觉惯性里程计、SLAM、地图构建、局部/全局规划和低层控制器来实现闭环导航。该范式的优势在于工程可解释性强、模块边界清晰、便于调参与验证。ORB-SLAM2\cite{MurArtal2017ORBSLAM2}与VINS-Mono\cite{Qin2018VINSMONO}分别代表了稀疏特征SLAM与视觉惯性紧耦合估计的代表性工作，为状态估计提供了高精度基础设施。在规划层面，RRT*与PRM*给出了渐近最优采样规划的理论基础\cite{Karaman2011SamplingOptimal}；FASTER则提出同时维护快速轨迹与安全回退轨迹以支持更高速度上限\cite{Faust2018FASTER}。然而，模块化方案的潜在代价是：系统延迟随模块串联增加、误差跨模块传播、以及模块间假设不一致。这些问题在高速飞行时尤其突出：串联推理延迟等效为状态预测误差，感知误差、建图误差与规划误差的复合传播最终导致避障失败或轨迹振荡。
-
-与此同时，端到端学习控制逐渐成为高速飞行的一条重要路径。端到端方法通过将高维观测直接映射为控制量或短期轨迹，避免显式建图与复杂规划带来的计算与时延瓶颈，并可在训练中吸收大量仿真数据，以特权信息专家生成示范来提升安全性与泛化。端到端控制的思想可追溯到Pomerleau提出的ALVINN\cite{Pomerleau1989ALVINN}，其将神经网络直接用于自动驾驶车道保持。NVIDIA的端到端自动驾驶系统进一步验证了深度卷积网络从摄像头图像直接回归转向角的可行性\cite{Bojarski2016EndToEndNVIDIA}。在无人机领域，DroNet将视觉输入映射为转向与碰撞概率，实现城市环境中的端到端导航\cite{Loquercio2018DroNet}；CAD2RL通过在纯合成环境中训练并迁移到真实室内场景，展示了仿真到现实迁移的潜力\cite{Sadeghi2017CAD2RL}；Gandhi等则提出通过大量碰撞数据进行自监督学习以获取避障能力\cite{Gandhi2017CollisionDrone}。Deep Drone Racing进一步利用域随机化实现从仿真到真实竞速环境的零样本迁移\cite{Kaufmann2018DeepDroneRacing}。
-
-近年来，强化学习也在竞速场景推动了端到端系统能力上限。Kaufmann等提出的Swift系统结合仿真深度强化学习与真实数据校正，在真实对抗竞速中达到了与人类冠军同级甚至胜出的水平\cite{Kaufmann2023SwiftNature}，代表了端到端方法在极限工况下的里程碑式进展。该成果表明，在充分的仿真基础设施、数据闭环与系统化工程实现支撑下，端到端系统不仅可以在简单场景替代传统流水线，更能在极端动态条件下展现出超越人类操控的性能上限。
-
-总结而言，高速端到端视觉避障的价值不仅在于"替代模块化"，更在于以更短时延、更强时序建模能力支撑闭环稳定性。而当系统部署在流式推理（Streaming Inference）的在线控制回路中时，"时间建模+状态一致性+工程可复现"会成为决定性能上限的关键因素。如何在保持端到端方法低延迟优势的同时，解决其在部署可信性、安全约束与可复现评测方面的不足，构成了本文的核心研究动机。
-
-
-\section{研究意义与应用价值}
-
-\subsection{工程与应用意义}
-
-高速避障能力直接决定无人机在复杂场景中的可用性。例如：林区穿越、坍塌建筑侦察、狭窄空间巡检等任务普遍存在密集障碍和不可预知扰动；若系统只能在低速下安全飞行，则任务效率与覆盖能力会受到严重限制。端到端方法通过减少显式地图与规划计算，使得在有限算力平台上实现更高刷新率的闭环控制成为可能。
-
-具体而言，工程意义体现在以下方面。首先，传统模块化系统在机载嵌入式平台上往往需要同时运行SLAM、规划器与控制器，三者的算力分配与调度本身就是工程难题；端到端方法将感知到控制压缩为单次神经网络前向推理，显著简化了系统架构与部署复杂度。其次，在灾后搜救、林区巡检等时间敏感场景中，飞行速度直接关联任务效率：以$\SI{3}{m/s}$与$\SI{10}{m/s}$的速度对比，同一任务覆盖面积可相差三倍以上。因此，在安全前提下提升飞行速度具有直接的任务价值。最后，端到端框架的模块化程度更低，使得算法迭代与仿真--现实迁移的周期更短，有利于快速原型验证与工程闭环。
-
-\subsection{学术意义：从"网络结构"走向"部署一致性与可审计"}
-
-端到端控制研究中常见的风险是：论文所报告的性能指标可能被工程实现细节所污染。尤其是涉及序列模型时，训练（Batch序列前向）与推理（Streaming单步递推）模式不一致会导致"看似提升/退化"的假象。当策略包含LSTM\cite{Hochreiter1997LSTM}、Transformer\cite{Vaswani2017Transformer}或结构化状态空间模型\cite{Gu2023Mamba}等序列模型，并以流式方式部署时，训练与部署之间的状态管理差异会显著影响行为一致性：若工程实现中误将内部状态在每个时间步或每次推理调用时重置，序列模型将退化为"无记忆策略"，丧失时序聚合能力，进而引发系统性漂移并污染实验结论。
-
-这一问题在当前端到端控制文献中缺乏系统性讨论。本文将流式部署一致性作为独立贡献进行分析，不仅给出现象与成因的系统描述，还提出回合边界级状态生命周期管理与硬防护机制，并建立可审计的评测协议。这使得本文的贡献从"提出一个新的网络结构"提升到"提出可复现、可审计的部署一致性方法论"——在硕士论文层面，这一维度的工程严谨性具有独立的学术价值。
-
-此外，本文探索将结构化状态空间模型从时序建模进一步拓展到空间编码：通过引入MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}作为视觉backbone，与时序Mamba\cite{Gu2023Mamba}形成"空间--时间统一的SSM系列架构"，为端到端视觉控制系统的表征效率与架构一致性提供新的设计思路与实验证据。
-
-
-\section{高速端到端视觉避障的关键挑战}
-
-结合已有研究与工程实践，高速端到端视觉避障通常面临以下五项关键挑战：
-
-\subsection{高速闭环对延迟极度敏感}
-
-在高速飞行中，感知噪声、执行延迟与动力学不确定性会通过闭环耦合被显著放大。以$\SI{10}{m/s}$的飞行速度为例，$\SI{50}{ms}$的额外延迟即意味着$\SI{0.5}{m}$的位置预测偏差——在密集障碍环境中，这一偏差足以导致碰撞。模块化系统中，感知--规划--控制的串联推理延迟会等效为状态预测误差，导致控制滞后、避障反应不及时与安全裕度降低。端到端策略虽可减少流水线延迟，但仍需在噪声观测条件下做出稳定可靠决策，并在高速下保持闭环稳定\cite{Loquercio2021HighSpeedWild}。因此，如何在有限算力下实现低延迟且鲁棒的闭环控制，是高速端到端飞行的首要挑战。
-
-\subsection{密集环境下的观测不确定性}
-
-快速运动带来的运动模糊、深度噪声、遮挡与纹理缺失会严重降低几何估计的可靠性。在低速条件下，传感误差通常可以被状态估计的滤波或平滑机制有效抑制；但在高速条件下，观测频率相对于运动变化率的比值下降，每帧图像的信息量变低，且相邻帧之间的视觉外观变化剧烈。端到端策略必须对这些不确定性具备内在鲁棒性——不仅依赖训练数据分布的覆盖，还需要在架构层面通过时序聚合来抑制单帧噪声的影响。
-
-\subsection{时序建模与流式部署一致性}
-
-高速避障并非静态映射问题：策略必须利用短时历史信息来抑制观测噪声、捕捉障碍相对运动趋势并稳定控制输出。传统做法多使用LSTM/RNN\cite{Hochreiter1997LSTM}进行时序聚合，但可能面临长序列训练稳定性、计算瓶颈以及部署状态管理敏感等问题。结构化状态空间模型（SSM）提供了另一条路径：例如Mamba提出选择性状态空间模型，强调线性复杂度与高吞吐的序列建模能力\cite{Gu2023Mamba}，为在线控制中的时序建模提供潜在优势。
-
-然而，更深层的挑战在于流式推理一致性。序列模型在在线推理时依赖内部状态持续传播：每个控制周期输入当前观测并更新内部状态。训练与部署的模式差异会带来严重的一致性风险——训练往往采用定长序列batch前向，部署则以单步递推更新。一旦状态在错误时刻被重置（例如每次推理调用时重新初始化），模型会退化为"无记忆策略"，进而触发系统性漂移与性能崩坏。这类问题往往不易在离线评测中暴露，但会在真实闭环里被放大。因此，必须通过严格的状态生命周期管理与硬防护机制加以解决。
-
-\subsection{安全性与平滑性的冲突}
-
-更敏捷的策略往往能够减少碰撞率，但也可能产生更高频率的控制指令抖动（command jerk），影响执行器寿命、能耗与飞行平滑性。安全与平滑之间的张力是一个内在矛盾：更激进的避障动作意味着更大幅度和更高频率的控制量变化，而过度平滑又可能导致避障不及时。
-
-安全学习领域已提出多种路线。Brunke等对安全学习控制进行了系统综述，总结了训练侧约束、运行时证书与安全滤波等主要方法类别\cite{Brunke2022SafeLearningReview}。基于控制障碍函数（CBF）的安全强化学习框架可在学习控制中强制满足安全约束\cite{Cheng2019RLwithCBF}；MPSC（model predictive safety certification）则通过MPC可行性证书对学习控制输出进行最小修改以满足约束\cite{Wabersich2018MPSC}。对于高速端到端避障系统，在保证安全性的前提下降低jerk并建立可部署的平滑机制，是工程落地的重要环节。训练侧约束、部署侧速率限制或安全滤波，以及安全证书模块均是候选方案，需要根据具体系统特性进行权衡选择。
-
-\subsection{有限算力与实时性约束}
-
-端到端策略要在真实系统中落地，通常受限于机载算力、控制周期和推理延迟。以典型的机载计算平台（如NVIDIA Jetson系列）为例，GPU算力与桌面级设备存在数量级差距；而控制回路通常要求$\SI{20}{Hz}$至$\SI{50}{Hz}$的刷新率，对应每次推理的时间预算仅为$\SI{20}{ms}$至$\SI{50}{ms}$。这一约束直接限制了策略网络的复杂度上限。
-
-在视觉backbone方面，基于自注意力的ViT\cite{Dosovitskiy2020ViT}在表征能力上具有优势，但其二次方复杂度在高分辨率输入下可能成为瓶颈。Mamba\cite{Gu2023Mamba}的线性复杂度使其在序列建模中更具部署友好性。近期MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}将Mamba思想引入视觉backbone设计，在保持高表征能力的同时实现更优的效率--精度权衡。高效backbone与线性复杂度的序列建模结构因此对机载部署更具吸引力。
-
-\subsection{闭环分布偏移与训练数据局限}
-
-上述五项挑战均涉及系统层面的设计决策，而从学习算法角度审视，端到端避障还面临一个根本性的\textbf{分布偏移}（Distribution Shift / Covariate Shift）问题\cite{Ross2011DAgger}。
-
-行为克隆（BC）是端到端控制中最常用的训练范式：以专家策略生成的状态--动作对为监督信号，通过最小化策略输出与专家动作之间的损失进行离线学习。然而，BC的训练数据由\textbf{专家策略}诱导的状态分布生成，而实际部署时策略访问的状态分布由\textbf{学生策略自身}诱导。当学生策略在某些状态下产生微小偏差时，后续状态会偏离专家数据的覆盖范围，导致预测误差累积——这就是经典的"误差复合"（compounding error）现象\cite{Ross2011DAgger}。
-
-在高速避障场景中，分布偏移的代价尤为严重：
-\begin{itemize}
-  \item 高速下策略的微小偏差会在极短时间内放大为显著的轨迹偏移，使无人机进入训练数据从未覆盖的状态区域；
-  \item 专家数据通常在"正常飞行"条件下采集，对"接近碰撞"与"碰撞后恢复"等边界状态的覆盖天然不足；
-  \item 即使BC基线在均值层面表现良好，跨试验的行为方差可能较大——策略在部分试验中表现优异，在另一些试验中因进入未覆盖状态区域而表现显著退化。
-\end{itemize}
-
-DAgger（Dataset Aggregation）\cite{Ross2011DAgger}通过在线采集当前策略诱导的闭环数据并由专家标注，逐步缩小训练分布与部署分布之间的差距，为缓解BC的分布偏移问题提供了理论与实践基础。本文在第4章将DAgger引入ViT+Mamba系统，并在第6章给出实验验证。
-
-
-\section{研究内容与技术路线}
-
-\subsection{总体研究目标}
-
-本文面向高速端到端视觉避障任务，目标是在密集障碍环境中实现安全、实时、可复现的闭环控制系统，并重点解决以下三个核心问题：
-\begin{enumerate}
-  \item 如何设计高效的空间表征与时序聚合结构，以提升高速段避障鲁棒性与分布外泛化能力；
-  \item 如何保证序列模型在流式部署中的状态一致性，避免因错误状态管理导致无记忆退化与系统性漂移；
-  \item 如何在保持安全性的同时控制指令抖动代价，构建部署可用的平滑/约束机制。
-\end{enumerate}
-
-\subsection{技术路线概述}
-
-本文的技术路线由三个递进阶段组成，每个阶段对应一至两项核心研究内容。图~\ref{fig:roadmap}给出了技术路线总览。
+四旋翼无人机凭借高机动性、垂直起降与悬停能力，在巡检、搜索救援、环境监测、应急通信以及室内外自主作业等任务中具有广泛应用前景\cite{Liu2020QuadControl}。如图~\ref{fig:scenario}所示，典型应用场景涵盖城市建筑巡检、林区搜索与穿越、室内仓储与走廊导航等，这些场景的共同特征是障碍密度高、环境结构多变、且往往缺乏预先地图信息。
 
 \begin{figure}[htbp]
 \centering
-\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit,backgrounds}
+\includegraphics[width=0.92\textwidth]{pictures/图1.1.png}
+\caption{四旋翼无人机高速避障的典型应用场景与共性挑战}
+\label{fig:scenario}
+\end{figure}
+
+当飞行任务从"低速、开阔、静态"逐步走向"高速、密集、动态"的复杂场景时，自主飞行面临的核心矛盾会显著加剧：一方面，高速会放大传感噪声、执行延迟与建模误差在闭环中的累积效应；另一方面，密集障碍环境要求系统在极短时间内完成感知、决策与控制，并在强不确定性下保持鲁棒性。
+
+\subsection{高速闭环的延迟预算分析}
+
+对于自主避障系统而言，从传感器采集原始数据到执行器完成控制指令的全链路延迟决定了系统的"反应窗口"。该延迟可以分解为四个主要环节：传感采集延迟$\tau_{\text{sensor}}$、数据传输与预处理延迟$\tau_{\text{preprocess}}$、策略推理延迟$\tau_{\text{inference}}$以及低层控制器的执行延迟$\tau_{\text{actuator}}$。表~\ref{tab:latency_budget}给出了典型端到端系统的延迟预算。
+
+\begin{table}[htbp]
+\centering
+\caption{端到端避障系统延迟预算分解}
+\label{tab:latency_budget}
+\zihao{5}
+\begin{tabular}{lccl}
+\toprule
+\textbf{环节} & \textbf{符号} & \textbf{典型范围 (ms)} & \textbf{说明} \\
+\midrule
+传感器采集 & $\tau_{\text{sensor}}$ & 5--15 & 深度相机帧间隔（30--60 FPS） \\
+数据预处理 & $\tau_{\text{preprocess}}$ & 1--5 & 图像缩放、归一化、拷贝到GPU \\
+策略推理 & $\tau_{\text{inference}}$ & 5--30 & 视觉编码 + 时序聚合 + 控制头 \\
+低层控制 & $\tau_{\text{actuator}}$ & 2--10 & 姿态环 + 电机混控 + 执行器响应 \\
+\midrule
+\textbf{全链路延迟} & $\tau_{\text{total}}$ & \textbf{13--60} & $\sum \tau_i$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+全链路延迟的实际后果取决于飞行速度：以$\SI{10}{m/s}$飞行时，$\SI{50}{ms}$的延迟意味着$\SI{0.5}{m}$的"决策盲区"——在此距离内，系统基于过期信息行动。在$\SI{12}{m/s}$的极限速度下，同样的延迟导致盲区扩大至$\SI{0.6}{m}$，在障碍间距为$\SI{1}{m}$--$\SI{3}{m}$的密集环境中，这一盲区已占据可通行空间的相当比例。因此，降低推理延迟是保障高速安全性的必要条件，这也是本文选择轻量化架构与线性复杂度时序模型的核心动机之一。
+
+\subsection{高速下的误差放大机制}
+
+高速飞行场景中，多种误差来源通过闭环耦合形成正反馈放大链路。如图~\ref{fig:error_amplify}所示，单帧观测噪声（深度噪声、运动模糊、遮挡）导致策略在当前步产生偏差$\epsilon_t$；该偏差使无人机偏离预期状态，下一步观测的质量进一步退化（因视角改变、距障碍更近时深度估计误差更大），从而诱发更大的决策偏差$\epsilon_{t+1}$。在高速下，每一步的时间窗口更短，纠正能力更弱，误差累积速度因此显著加快。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+  block/.style={draw, rounded corners=3pt, minimum width=2.8cm, minimum height=0.9cm, align=center, font=\small, fill=#1},
+  arrow/.style={->, thick, color=black!70},
+]
+% 误差来源
+\node[block=blue!10] (noise) at (0, 0) {观测噪声\\(深度噪声/模糊/遮挡)};
+\node[block=orange!10] (decision) at (5, 0) {策略偏差 $\epsilon_t$\\(决策误差)};
+\node[block=red!8] (state) at (10, 0) {状态偏移\\(位置/姿态偏离)};
+\node[block=red!15] (worse) at (10, -2) {观测质量退化\\(视角变化/更近障碍)};
+\node[block=orange!15] (next) at (5, -2) {更大偏差 $\epsilon_{t+1}$};
+\node[block=blue!15] (accum) at (0, -2) {误差累积\\碰撞风险 $\uparrow$};
+
+\draw[arrow] (noise) -- (decision);
+\draw[arrow] (decision) -- (state);
+\draw[arrow] (state) -- (worse);
+\draw[arrow] (worse) -- (next);
+\draw[arrow] (next) -- (accum);
+\draw[arrow, dashed, red!60] (accum) -- node[left, font=\scriptsize, color=red!60] {正反馈} (noise);
+
+\node[draw, rounded corners=2pt, fill=yellow!10, font=\scriptsize, inner sep=3pt] at (5, -3.5) {高速放大因子：时间窗口压缩 $\rightarrow$ 纠正能力下降 $\rightarrow$ 累积加速};
+\end{tikzpicture}
+\caption{高速闭环控制中的误差放大链路}
+\label{fig:error_amplify}
+\end{figure}
+
+图~\ref{fig:error_flight}进一步以飞行轨迹视角直观展示了这一误差放大与累积过程：深度噪声与运动模糊导致策略偏离理想轨迹，偏差随时间步持续放大。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.88\textwidth]{pictures/误差累积导致偏移.png}
+\caption{高速飞行中的误差放大与累积示意：深度噪声与运动模糊导致实际轨迹偏离理想轨迹，误差随时间步持续放大}
+\label{fig:error_flight}
+\end{figure}
+
+该正反馈链路的本质是：高速缩短了"容忍误差—纠正误差"的时间窗口。在$\SI{3}{m/s}$低速下，策略有$\SI{300}{ms}$的反应时间来纠正$\SI{1}{m}$距离内的偏差；而在$\SI{12}{m/s}$下，同样的距离仅留下$\SI{83}{ms}$——不到低速的三分之一。这要求策略不仅要"看得准"，还要能够利用历史信息进行时序平滑，抑制噪声导致的瞬时偏差。
+
+\subsection{端到端范式需要时序建模的直觉}
+
+上述误差放大机制指向一个核心洞察：单帧决策在高速场景中固有地脆弱。单帧深度图像面临以下不可靠性来源：
+
+\begin{itemize}
+  \item 运动模糊：高速运动导致相机曝光期间场景发生显著位移，深度图像边缘模糊；
+  \item 深度噪声与远距稀疏：深度传感器在远距离（$>$\SI{5}{m}）或极近距离的测量精度显著下降；
+  \item 瞬时遮挡：复杂障碍结构导致关键区域在某些视角下被临时遮挡；
+  \item 细长障碍遗漏：树干、电线等在$60 \times 90$分辨率下仅占少数像素，单帧易忽略。
+\end{itemize}
+
+时序聚合提供了一种自然的缓解机制：通过利用短时历史帧（如最近10--20帧），策略能够（1）通过多帧平均抑制随机噪声；（2）通过运动趋势推断被遮挡区域的障碍位置；（3）平滑控制输出以减少抖动。这正是本文选择序列模型（Mamba/LSTM）作为核心时序建模组件的根本原因。
+
+在机器人与无人机自主飞行领域，主流方案长期采用模块化范式（Perception--Planning--Control），通过视觉/视觉惯性里程计、SLAM\cite{MurArtal2017ORBSLAM2,Qin2018VINSMONO,Campos2021ORBSLAM3}、地图构建、局部/全局规划\cite{Karaman2011SamplingOptimal,Zhou2019FastPlanner}和低层控制器来实现闭环导航。该范式的优势在于工程可解释性强、模块边界清晰、便于调参与验证。然而，模块化方案的潜在代价是：系统延迟随模块串联增加（表~\ref{tab:latency_budget}中各环节在模块化方案中更为突出）、误差跨模块传播、以及模块间假设不一致。Loquercio等\cite{Loquercio2021HighSpeedWild}明确指出：传统模块化做法在高速密集环境中会因流水线式延迟与误差传递而变得脆弱。
+
+端到端学习控制通过将高维观测直接映射为控制量，避免显式建图与复杂规划带来的计算与时延瓶颈。如图~\ref{fig:modular_vs_e2e}所示，端到端方法将感知到控制压缩为单次神经网络前向推理，显著简化了系统架构。端到端控制的思想可追溯到Pomerleau提出的ALVINN\cite{Pomerleau1989ALVINN}；NVIDIA的端到端自动驾驶系统\cite{Bojarski2016EndToEndNVIDIA}验证了深度卷积网络从图像直接回归控制量的可行性。在无人机领域，DroNet\cite{Loquercio2018DroNet}、CAD2RL\cite{Sadeghi2017CAD2RL}以及Deep Drone Racing\cite{Kaufmann2018DeepDroneRacing}等工作逐步推进了端到端范式的应用。近年来，Kaufmann等提出的Swift系统\cite{Kaufmann2023SwiftNature}在真实对抗竞速中达到了超越人类冠军的水平，代表了端到端方法的里程碑式进展。Levine等\cite{Levine2016E2ERobotLearning}从更广泛的机器人操作视角验证了端到端策略的有效性；Chen等\cite{Chen2020LearningByCheat}提出的"Learning by Cheating"范式将特权信息蒸馏系统化。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{pictures/模块化VS端到端.png}
+\caption{模块化导航范式与端到端控制范式的对比：左侧为传统模块化流水线（Sensor$\rightarrow$SLAM$\rightarrow$Mapping$\rightarrow$Planning$\rightarrow$Low-Level Control），延迟逐级累积；右侧为端到端学习控制，传感器输出经神经网络直接映射为控制指令，显著降低延迟}
+\label{fig:modular_vs_e2e}
+\end{figure}
+
+总结而言，高速端到端视觉避障的价值不仅在于"替代模块化"，更在于以更短时延、更强时序建模能力支撑闭环稳定性。而当系统部署在流式推理（Streaming Inference）的在线控制回路中时，"时间建模+状态一致性+工程可复现"会成为决定性能上限的关键因素。
+
+
+\section{问题定义}
+
+\subsection{输入-输出接口}
+
+本文研究的核心问题可定义为：在未知障碍环境下，四旋翼无人机以给定目标速度完成穿越/到达任务，同时最小化碰撞、保持控制平滑。具体地，端到端视觉避障任务的输入--输出接口定义如下：
+
+\begin{itemize}
+  \item 输入：前视单目深度图像$D_t \in \mathbb{R}^{H \times W}$与本体状态（姿态四元数$q_t$、归一化目标速度$\tilde{v}^{\text{target}}$）。
+  \item 输出：世界坐标系下的三维速度指令$\mathbf{v}_t = [v^x_t, v^y_t, v^z_t] \in \mathbb{R}^3$。
+  \item 任务目标：在密集障碍环境中完成沿主飞行方向的穿越，最小化碰撞接触，保证控制指令的平滑性。
+\end{itemize}
+
+该任务的闭环控制流程如图~\ref{fig:task_loop}所示：在每个控制周期，策略$\pi_\theta$根据观测$o_t = (D_t, s_t)$输出速度指令$\mathbf{v}_t$，经由低层控制器转化为电机指令并执行，仿真器/飞行器更新状态后返回下一帧观测，形成闭环。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+  node distance=1.2cm and 1.5cm,
+  block/.style={draw, rounded corners=3pt, minimum width=2.5cm, minimum height=1.0cm, align=center, font=\small},
+  arrow/.style={->, thick, color=black!70},
+]
+\node[block, fill=blue!10] (obs) {观测 $o_t$\\$(D_t, s_t)$};
+\node[block, fill=orange!15, right=of obs] (policy) {策略 $\pi_\theta$\\(ViT+Mamba)};
+\node[block, fill=red!8, right=of policy] (cmd) {速度指令\\$\mathbf{v}_t$};
+\node[block, fill=green!10, below=1.0cm of cmd] (ctrl) {低层控制器\\+ 执行器};
+\node[block, fill=green!10, below=1.0cm of obs] (env) {仿真器/\\飞行器};
+
+\draw[arrow] (obs) -- (policy);
+\draw[arrow] (policy) -- (cmd);
+\draw[arrow] (cmd) -- (ctrl);
+\draw[arrow] (ctrl) -- (env);
+\draw[arrow] (env) -- node[left, font=\scriptsize] {状态更新} (obs);
+\end{tikzpicture}
+\caption{端到端视觉避障任务闭环控制流程}
+\label{fig:task_loop}
+\end{figure}
+
+\subsection{部分可观测性与序列建模的必要性}
+
+值得注意的是，上述任务实质上是一个部分可观测（POMDP）问题，而非标准MDP。原因在于：（1）单帧深度图像$D_t$仅提供前方有限视场（水平约$90^\circ$）的深度信息，侧方与后方完全不可观测；（2）深度图像受噪声与量化误差影响，无法精确重建三维障碍分布；（3）仅凭单帧深度图无法区分静态障碍与动态物体，也无法推断障碍的运动趋势。
+
+在POMDP框架下，单步观测$o_t$不足以确定环境的完整状态$s_t^{\text{env}}$。经典的POMDP理论\cite{Elman1990RNN}指出，当观测不完整时，策略需要利用历史观测序列来推断隐含状态信息：
+\begin{equation}
+  a_t = \pi_\theta(o_{\le t}) = \pi_\theta(o_1, o_2, \ldots, o_t)
+\end{equation}
+
+这从理论上为引入序列模型（如LSTM或Mamba）作为时序聚合模块提供了直接的理论动机：序列模型的隐状态$\mathbf{h}_t$可以视为对历史观测的压缩摘要，隐式地逼近信念状态（belief state）。在高速避障场景中，这种时序记忆尤为关键——帮助策略在当前帧信息不可靠时，从历史帧中获取补充信息以做出更稳健的决策。
+
+
+\section{关键挑战}
+
+结合已有研究与工程实践，本文将高速端到端视觉避障的关键挑战归纳为以下三条，它们与本文三项创新点一一对应。
+
+\subsection{挑战一：时序建模与高速决策}
+
+高速避障并非静态映射问题：策略必须利用短时历史信息来抑制观测噪声、捕捉障碍相对运动趋势并稳定控制输出。单帧决策在高速飞行中尤为脆弱——运动模糊、深度噪声与遮挡等因素使单帧信息可靠性大幅降低（如1.1.3节所述）。传统做法多使用LSTM/RNN\cite{Hochreiter1997LSTM}进行时序聚合，但面临长序列训练稳定性与计算瓶颈等问题。结构化状态空间模型（SSM），特别是Mamba\cite{Gu2023Mamba}，以线性复杂度实现高效时序建模，为高速闭环控制提供了新的可能。
+
+同时，行为克隆（BC）训练范式存在固有的闭环分布偏移问题\cite{Ross2011DAgger}：训练数据来自专家策略诱导的状态分布，而部署时学生策略自身会偏离该分布，导致误差累积。Ross等\cite{Ross2011DAgger}的理论分析表明，BC的期望代价上界与时间步$T$呈$O(T^2)$增长。在高速场景下，这一偏移的后果从"性能下降"加剧为"碰撞风险"。如何设计有效的时序建模架构并缓解分布偏移，是本文的第一个研究重点，对应第3章的创新点一。
+
+本文验证的命题1：在相同视觉编码器（ViT）条件下，Mamba时序模块在高速段（$\ge \SI{9}{m/s}$）的碰撞指标显著优于LSTM；DAgger闭环数据增强在BC基线之上进一步降低碰撞频次并收敛跨试验方差。
+
+\subsection{挑战二：流式部署一致性}
+
+序列模型在训练时以定长序列Batch前向计算，而在部署时以逐步Streaming递推运行。如图~\ref{fig:batch_vs_stream}所示，两种模式在状态管理上存在本质差异。若内部状态在错误时刻被重置（例如每次推理调用时重新初始化），序列模型将退化为"无记忆策略"，完全丧失时序聚合能力。这类问题往往不易在离线评测中暴露（因为离线评测中通常以Batch模式运行，状态天然正确），但会在实际闭环部署中引发毁灭性后果。
+
+更深层的原因在于：现有端到端控制文献中，对训练--推理模式差异的讨论非常有限。多数工作隐式假设"训练时的模型行为与部署时一致"，但当部署工程实现引入了错误的状态管理逻辑时，这一假设会被悄无声息地破坏——且离线指标不会反映问题。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  >=Stealth,
+  frame/.style={draw, minimum width=0.7cm, minimum height=0.7cm, font=\scriptsize, inner sep=1pt},
+  state/.style={draw, circle, minimum size=0.5cm, font=\scriptsize, inner sep=0pt},
+]
+% Batch模式
+\node[font=\small\bfseries, color=blue!70] at (-2.2, 1.8) {训练：Batch模式};
+\foreach \i in {1,...,8} {
+  \node[frame, fill=blue!10] (b\i) at (\i*0.9, 1.8) {$x_{\i}$};
+}
+\draw[decorate, decoration={brace, amplitude=5pt, mirror}, thick, blue!60] (b1.south west) -- (b8.south east) node[midway, below=6pt, font=\scriptsize, color=blue!60] {一次性并行计算所有输出};
+\node[state, fill=blue!20] (h0b) at (0.2, 1.8) {$h_0$};
+\draw[->, blue!50, thick] (h0b) -- (b1);
+
+% Streaming模式（正确）
+\node[font=\small\bfseries, color=green!60!black] at (-2.2, 0.4) {部署：Streaming};
+\foreach \i in {1,...,8} {
+  \node[frame, fill=green!10] (s\i) at (\i*0.9, 0.4) {$x_{\i}$};
+}
+\foreach \i [evaluate=\i as \j using int(\i+1)] in {1,...,7} {
+  \draw[->, green!50!black, thick] (s\i) -- (s\j);
+}
+\node[state, fill=green!20] (h0s) at (0.2, 0.4) {$h_0$};
+\draw[->, green!50!black, thick] (h0s) -- (s1);
+\node[font=\scriptsize, color=green!60!black] at (5.5, -0.15) {状态跨步连续传播 $\checkmark$};
+
+% 错误模式
+\node[font=\small\bfseries, color=red!70] at (-2.2, -1.0) {错误：逐步重置};
+\foreach \i in {1,...,8} {
+  \node[frame, fill=red!10] (r\i) at (\i*0.9, -1.0) {$x_{\i}$};
+  \node[state, fill=red!20, above=0.15cm of r\i, font=\tiny] (hr\i) {$0$};
+  \draw[->, red!50, thin] (hr\i) -- (r\i);
+}
+\node[font=\scriptsize, color=red!70] at (5.5, -1.65) {每步重置 $\rightarrow$ 无记忆退化 $\times$};
+\end{tikzpicture}
+\caption{训练Batch模式与部署Streaming模式的状态管理差异，以及错误的逐步重置导致的无记忆退化}
+\label{fig:batch_vs_stream}
+\end{figure}
+
+本文验证的命题2：错误的逐步状态重置会导致碰撞率从$0\%$飙升至$90\%$以上；通过等价性单元测试可以在部署前检测此类错误。
+
+\subsection{挑战三：算力约束与高效视觉骨干}
+
+端到端策略在真实系统中落地，通常受限于机载算力与控制周期的实时性约束。表~\ref{tab:latency_budget}显示，策略推理在全链路延迟中占比最大（$\SI{5}{ms}$--$\SI{30}{ms}$），因此视觉编码器的效率直接决定控制频率。基于自注意力的ViT\cite{Dosovitskiy2020ViT}在表征能力上具有优势，但其$O(n^2)$复杂度在高分辨率输入下可能成为推理瓶颈。如图~\ref{fig:complexity_compare}所示，基于SSM的架构以$O(n)$线性复杂度提供了更具部署友好性的替代方案。MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}将Mamba思想引入视觉backbone设计，在保持高表征能力的同时实现更优的效率--精度权衡。
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=8cm, height=5cm,
+  xlabel={序列/Token长度 $n$},
+  ylabel={计算复杂度（示意）},
+  xmin=0, xmax=10,
+  ymin=0, ymax=100,
+  xtick=\empty,
+  ytick=\empty,
+  legend pos=north west,
+  legend style={font=\small},
+  grid=major,
+  grid style={gray!20},
+]
+\addplot[domain=0:10, samples=50, thick, color=red!70, dashed] {x^2};
+\addlegendentry{Self-Attention $O(n^2)$}
+\addplot[domain=0:10, samples=50, thick, color=blue!70] {x*3};
+\addlegendentry{SSM/Mamba $O(n)$}
+\end{axis}
+\end{tikzpicture}
+\caption{自注意力机制$O(n^2)$与SSM线性$O(n)$复杂度的对比示意}
+\label{fig:complexity_compare}
+\end{figure}
+
+本文验证的命题3：在固定时序模块与训练流程的条件下，替换视觉编码器为MambaVision能够带来推理延迟或显存收益，且不显著牺牲安全性（第5章验证）。
+
+
+\section{本文贡献}
+
+结合上述三项关键挑战，本文形成如下三项主要贡献与创新点：
+
+\begin{enumerate}
+
+  \item 提出面向高速端到端避障的ViT+Mamba时序策略网络，构建BC+DAgger+RACS的完整训练--部署系统。
+  构建以ViT空间编码、Mamba选择性状态空间模型时序聚合与线性控制头为核心的端到端策略网络。训练方面采用行为克隆（BC）建立强基线，并引入DAgger闭环数据增强缓解分布偏移；部署方面设计RACS动态速率限制模块控制指令抖动代价。在5个速度档（$\SI{3}{m/s}$--$\SI{12}{m/s}$）与同分布/分布外双环境下进行系统评测。证据见第3章实验第\ref{sec:ch3_exp}节。
+
+  \item 揭示序列模型端到端控制中的关键陷阱：流式部署状态管理错误导致碰撞率从0\%飙升至90\%；提出回合边界级状态生命周期管理协议与硬防护机制。
+  系统分析训练模式与推理模式的差异导致的状态错误重置问题；设计回合边界级状态管理协议与硬防护机制（运行时断言、配置锁定、可审计日志）。证据见第4章实验第\ref{sec:ch4_exp}节。
+
+  \item 探索从混合架构走向全SSM架构：将空间编码器替换为MambaVision，量化空间--时间同构建模的可行性与能力边界。
+  在保持时序Mamba模块、训练流程与部署一致性机制完全不变的条件下，将视觉编码器替换为MambaVision，形成空间--时间统一的SSM系列架构。证据见第5章实验。
+
+\end{enumerate}
+
+图~\ref{fig:roadmap}给出了本文技术路线总览，三个阶段分别对应三项创新点。
+
+\begin{figure}[htbp]
+\centering
 \begin{tikzpicture}[
   >=Stealth,
   node distance=0.6cm and 0.6cm,
-  % 阶段盒子样式
   stagebox/.style={
     draw, rounded corners=4pt, minimum width=13.5cm, minimum height=1.8cm,
     text width=13cm, align=left, font=\small, inner sep=8pt
   },
-  % 阶段标签样式
   stagelabel/.style={
     draw, rounded corners=3pt, fill=#1!15, text=#1!80!black,
     font=\bfseries\small, minimum width=1.8cm, minimum height=0.6cm, align=center
   },
-  % 箭头样式
   myarrow/.style={->, thick, color=black!60},
 ]
 
@@ -139,7 +315,7 @@ DAgger（Dataset Aggregation）\cite{Ross2011DAgger}通过在线采集当前策�
 \draw[myarrow] (boxA.south) -- (boxB.north);
 \draw[myarrow] (boxB.south) -- (boxC.north);
 
-% === 右侧标注：创新点对应 ===
+% === 右侧标注 ===
 \node[font=\scriptsize\itshape, color=blue!70, anchor=west] at ($(boxA.east)+(0.15,0)$) {创新点1};
 \node[font=\scriptsize\itshape, color=teal!70, anchor=west] at ($(boxB.east)+(0.15,0)$) {创新点2};
 \node[font=\scriptsize\itshape, color=violet!70, anchor=west] at ($(boxC.east)+(0.15,0)$) {创新点3};
@@ -149,64 +325,17 @@ DAgger（Dataset Aggregation）\cite{Ross2011DAgger}通过在线采集当前策�
 \label{fig:roadmap}
 \end{figure}
 
-各阶段的具体内容如下：
-
-\textbf{阶段A：端到端系统设计——网络架构、训练方法与部署约束。}
-本文采用端到端视觉控制框架：每个控制周期策略接收单目深度观测与轻量状态输入，输出世界坐标系下的速度指令，由仿真器/低层控制器执行形成闭环。为支撑大规模数据生成与可控评测，本文使用高保真仿真平台Flightmare进行训练与测试\cite{Song2021Flightmare}。在策略网络方面，以"空间编码+时序聚合+控制头"为基本架构：空间编码器采用ViT\cite{Dosovitskiy2020ViT}提取空间表征，时序模块采用选择性状态空间模型Mamba\cite{Gu2023Mamba}聚合时序信息，实现从单目深度与轻量状态到世界坐标速度指令的端到端映射。训练方面，首先采用行为克隆（BC）范式建立强基线；在此基础上引入DAgger\cite{Ross2011DAgger}闭环数据增强（3轮迭代），逐步缩小训练分布与部署分布之间的差距，降低碰撞频次并提升跨试验稳定性。为缓解敏捷避障带来的指令抖动代价，本文进一步设计部署侧动态速率限制控制平滑器（RACS），以最小工程复杂度换取显著的平滑性改善。DAgger方法见第4章4.8节，RACS方法见第4章4.9节，实验结果详见第6章。
-
-\textbf{阶段B：流式部署一致性——关键陷阱揭示与状态生命周期管理。}
-序列模型在流式部署中存在一个\textbf{关键陷阱}（Critical Pitfall）：训练与推理的模式差异可能导致内部状态在错误时刻被重置，使模型退化为"无记忆策略"。本文系统分析了该现象的成因与后果——实验表明，错误的逐步重置会使碰撞率从0\%飙升至90\%——并提出回合边界级状态生命周期管理协议与硬防护机制（运行时断言、配置锁定与可审计日志），确保部署一致性与评测可信度。该发现对所有使用序列模型进行端到端控制的研究具有普遍警示意义。
-
-\textbf{阶段C：全SSM架构探索——MambaVision替换ViT视觉backbone。}
-在前两阶段确立的ViT+Mamba系统基础上，本文进一步探索将空间编码器从ViT替换为同属SSM系列的MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}，形成空间--时间统一的全SSM架构。该探索的核心价值不仅在于性能比较，更在于考察SSM在视觉感知领域的能力边界与空间--时间同构建模的可行性。即使性能提升有限，该实验仍为理解SSM在端到端控制中的适用范围提供有价值的实证基础。
-
-
-\section{本文主要贡献与创新点}
-
-结合上述研究目标与技术路线，本文形成如下三项主要贡献与创新点：
-
-\begin{enumerate}
-
-  \item \textbf{提出面向高速端到端避障的ViT+Mamba时序策略网络，构建BC+DAgger+RACS的完整训练--部署系统，并建立多速度档系统评测体系。}
-  \textit{方法：}构建以ViT空间编码、Mamba选择性状态空间模型时序聚合与线性控制头为核心的端到端策略网络。训练方面采用行为克隆（BC）建立强基线，并引入DAgger闭环数据增强缓解分布偏移；部署方面设计RACS动态速率限制模块控制指令抖动代价。
-  \textit{验证：}在5个速度档（$\SI{3}{m/s}$--$\SI{12}{m/s}$）与同分布（Spheres）/分布外（Trees）双环境下进行零样本评测。DAgger实验验证碰撞频次与方差随迭代收敛；RACS实验验证Jerk显著降低而安全性基本保持。
-  \textit{（对应第4、6章）}
-
-  \item \textbf{揭示序列模型端到端控制落地中的一个关键陷阱（Critical Pitfall）：流式部署状态管理错误导致碰撞率从0\%飙升至90\%；提出回合边界级状态生命周期管理协议与硬防护机制。}
-  \textit{方法：}系统分析训练模式（定长序列batch前向）与推理模式（逐步递推）的差异导致的状态错误重置问题；设计回合边界级状态生命周期管理协议——内部状态仅在回合开始时初始化、回合内保持连续传播；引入运行时断言、配置锁定与可审计日志作为硬防护机制。
-  \textit{验证：}通过KeepState与ResetState的对比实验，碰撞率从0\%跳升至90\%、Mean Y Drift从$\SI{0.022}{m}$增至$\SI{0.770}{m}$，定量证实状态管理错误的毁灭性后果。该发现对所有使用序列模型进行端到端控制的研究具有\textbf{普遍警示意义}。
-  \textit{（对应第5章）}
-
-  \item \textbf{从混合架构走向全SSM架构的探索：将空间编码器从ViT替换为MambaVision，量化空间--时间同构建模的可行性与能力边界。}
-  \textit{方法：}在保持时序Mamba模块、训练流程与部署一致性机制完全不变的条件下，将视觉编码器替换为MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}（混合Mamba-Transformer backbone），形成空间--时间统一的SSM系列架构。
-  \textit{验证：}在相同的多速度档与OOD场景下，对比ViT与MambaVision在碰撞率、OOD泛化鲁棒性、推理延迟与显存占用四个维度的表现。
-  \textit{核心价值：}该探索的贡献在于\textbf{提出并验证全SSM架构在端到端控制中的可行性}，为理解SSM在视觉--运动控制任务中的能力边界提供实证基础。即使性能提升有限，空间--时间同构性带来的架构简洁性与工程统一性仍具理论意义。
-  \textit{（对应第6章控制变量实验）}
-
-\end{enumerate}
-
 
 \section{论文结构安排}
 
-本文共分七章，各章内容安排如下：
+本文共分五章，各章内容安排如下：
 
-\textbf{第1章\quad 绪论。}
-介绍高速端到端视觉避障的研究背景与问题提出，阐述研究意义与应用价值，分析关键挑战（包括闭环分布偏移问题），给出研究内容与技术路线，总结本文主要贡献与创新点，并说明论文结构安排。
+第1章\quad 绪论。介绍高速端到端视觉避障的研究背景与应用场景，通过延迟预算分析量化高速闭环的约束条件，从误差放大机制与部分可观测性角度阐明时序建模的必要性，定义核心问题，分析三项关键挑战并给出可验证命题，总结本文主要贡献与创新点，并说明论文结构安排。
 
-\textbf{第2章\quad 相关工作与研究现状。}
-系统综述模块化自主飞行（感知--规划--控制范式）、端到端视觉飞行控制（从模仿学习到强化学习）、视觉表征与网络结构（CNN、ViT与MambaVision）、时序建模（LSTM、Transformer与结构化状态空间模型）、以及安全性与部署侧约束机制等方面的国内外研究进展，明确本文的切入点与定位。
+第2章\quad 预备知识与相关工作。综述支撑本文三项创新点的核心背景知识，包括四旋翼控制接口与低层控制器假设、模仿学习与分布偏移的理论与工程实现、视觉表征（CNN/ViT）的设计空间、时序建模（LSTM/SSM/Mamba）的数学基础与选择性机制、仿真平台与专家策略的完整描述；同时固定全篇统一的评测协议与指标定义（含统计口径与实现细节），后续各章实验直接引用。
 
-\textbf{第3章\quad 问题定义与系统框架。}
-给出高速端到端视觉避障任务的形式化定义，包括观测空间、动作空间、奖励/损失设计与评价指标；描述基于Flightmare仿真平台的系统架构、数据生成流程与闭环评测协议。
+第3章\quad 面向高速避障的ViT+Mamba端到端策略（创新点一）。详细介绍ViT+Mamba策略网络的架构设计（含设计选择讨论与复杂度分析）、BC训练与DAgger闭环数据增强（含数据构成分析与收益机制）、RACS部署侧速率限制（含投影推导与边界情况分析），并在章末给出完整实验结果（ViT+Mamba vs ViT+LSTM主对比、DAgger轮次收敛、RACS安全--平滑权衡、消融实验与失败案例分析）。
 
-\textbf{第4章\quad ViT+Mamba策略网络与训练方法。}
-详细介绍端到端策略网络的架构设计（ViT空间编码器、Mamba时序聚合模块、控制头）与基于行为克隆（BC）的训练流程，给出DAgger闭环数据增强的方法与实现细节，以及部署侧动态速率限制控制平滑器（RACS）的算法定义、数学形式与安全学习方法谱系定位。
+第4章\quad 流式部署一致性与状态生命周期管理（创新点二）。系统分析Batch--Streaming等价性条件（含等价性推导）、状态错误重置导致的无记忆退化机理，提出回合边界级状态管理协议（含常见工程错误谱系）与硬防护机制（含日志字段规范与等价性单测），并在章末通过KeepState vs ResetState对比实验与等价性单测定量验证。
 
-\textbf{第5章\quad 流式部署一致性与状态生命周期管理。}
-系统分析序列模型在流式推理中的状态一致性问题，揭示无记忆退化的关键陷阱（碰撞率从0\%飙升至90\%），提出回合边界级状态管理协议与硬防护机制，并通过对比实验验证该机制对评测可信度的决定性影响。
-
-\textbf{第6章\quad 实验设置与结果分析。}
-给出完整的实验设置（环境配置、评测协议、基线对比与消融实验），在多速度档与多障碍分布下评估策略性能。在BC基线对比之后，依次给出RACS部署侧约束实验、DAgger闭环数据增强实验的结果与分析，以及从混合架构走向全SSM架构的MambaVision探索实验框架设计。
-
-\textbf{第7章\quad 总结与展望。}
-总结全文研究内容与主要结论，讨论现有方法的局限性，并展望未来在真实环境部署、动态障碍应对、多模态融合等方面的拓展方向。
+第5章\quad 全SSM架构探索与全文总结（创新点三）。将视觉编码器替换为MambaVision，在控制变量设计下评测安全性、泛化、延迟与显存四维指标，讨论适用边界与未来方向；最后总结全文贡献、讨论局限性并展望未来研究方向。
