@@ -1,11 +1,12 @@
 \chapter{预备知识与相关工作}
 
-本章综述支撑本文三项创新点的核心背景知识，
-并固定全篇统一的评测协议与指标定义。
-本章的目标是"收敛"：只讲支撑后续创新章节所必须的背景，
-并把统一的评测口径固定下来，
-后面每章实验直接引用，
-不再重复。
+本章旨在系统性地论述支撑本文核心创新点的背景知识，
+并确立贯穿全篇的评测协议与指标定义。
+本章遵循“最小必要性”原则对相关背景进行梳理：
+仅聚焦于支撑后续研究及改进方案所需的理论基础，
+以此建立统一的评测基准与实验口径。
+后续章节的实验部分将直接沿用本章定义的指标体系，
+以确保全文论述的连贯性与严谨性。
 
 \section{四旋翼控制接口与任务抽象}
 
@@ -149,7 +150,7 @@ Ross等\cite{Ross2011DAgger}严格证明了BC的期望代价上界与时间步$T
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{pictures/普通行为克隆.png}
+\includegraphics[width=0.92\textwidth]{Image/图2-1_行为克隆端到端训练流程.png}
 \caption{行为克隆（BC）端到端训练流程：左侧由专家策略$\pi^*$在环境中采集观测--动作对构成数据集$\mathcal{D}$；中间将序列观测输入端到端神经网络$\pi_\theta$预测动作$\hat{a}_t$；右侧通过MSE损失$\mathcal{L} = \|a_t - \hat{a}_t\|^2$计算梯度并反向传播更新网络参数}
 \label{fig:distribution_shift}
 \end{figure}
@@ -164,17 +165,21 @@ Codevilla等\cite{Codevilla2019ExploringLimits}系统探索了BC在自动驾驶�
 
 \subsection{DAgger：数据集聚合}
 
-DAgger（Dataset Aggregation）\cite{Ross2011DAgger}通过迭代式数据集聚合系统缓解分布偏移。
-算法流程如下：
+DAgger（Dataset Aggregation）\cite{Ross2011DAgger} 的核心思想是通过“在线干预”与“数据回流”建立反馈闭环。
+该算法不再局限于专家生成的静态演示，而是将当前学习到的策略部署于环境中进行“试错”，
+强制智能体探索自身可能诱发的非最优状态空间。
+通过请求专家对这些真实交互状态进行在线补标，算法能够有针对性地纠正策略在偏离轨迹后的行为，
+从而在训练过程中实现对潜在误差轨迹的覆盖。
+其具体的迭代流程如下：
 
 \begin{enumerate}
-  \item 以初始BC策略$\pi_0$（或随机策略）为起点；
-     \item 第$i$轮：以混合策略$\hat{\pi}_i = \beta_i \pi^* + (1-\beta_i) \pi_i$在环境中采集数据，
-    其中$\beta_i$为专家混合比例；
-     \item 由专家策略$\pi^*$为所有采集到的状态标注最优动作；
-     \item 将新标注数据合并到训练集$\mathcal{D}_i = \mathcal{D}_{i-1} \cup \mathcal{D}_{\text{new}}$；
-     \item 以$\mathcal{D}_i$重新训练得到$\pi_{i+1}$。
-     \end{enumerate}
+    \item 以初始行为克隆策略 $\pi_0$（或随机策略）作为训练起点；
+    \item 第 $i$ 轮迭代：在环境中部署混合策略 $\hat{\pi}_i = \beta_i \pi^* + (1-\beta_i) \pi_i$ 采集交互轨迹，
+    其中 $\beta_i$ 用于平衡专家引导与策略自主探索的比例；
+    \item 引入专家策略 $\pi^*$ 为当前采集到的所有实时状态标注最优动作标量；
+    \item 将新获得的交互数据聚合至全局训练集 $\mathcal{D}_i = \mathcal{D}_{i-1} \cup \mathcal{D}_{\text{new}}$；
+    \item 在聚合后的数据集 $\mathcal{D}_i$ 上通过监督学习进行策略迭代，得到更新后的 $\pi_{i+1}$。
+\end{enumerate}
 
 DAgger的闭环数据聚合直观流程如图~\ref{fig:dagger_loop}所示，
 迭代式数据聚合全流程示意见图~\ref{fig:dagger_detail}。
@@ -208,7 +213,7 @@ DAgger的闭环数据聚合直观流程如图~\ref{fig:dagger_loop}所示，
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.92\textwidth]{pictures/DAgger.png}
+\includegraphics[width=0.92\textwidth]{Image/图2-2_DAgger迭代式数据聚合全流程.png}
 \caption{DAgger迭代式数据聚合全流程示意：上层为环境交互阶段，混合策略$\hat{\pi}_i = \beta_i \pi^* + (1-\beta_i)\pi_i$在环境中采集轨迹并由专家$\pi^*$修正标注；中层为数据聚合阶段，新采集数据$\mathcal{D}_{\text{new}}$与历史数据集$\mathcal{D}_i$合并；下层为训练更新阶段，以聚合数据集重训策略$\pi_{i+1}$。右侧对比图展示BC误差$O(T^2)$增长与DAgger误差$O(1)$收敛的理论差异}
 \label{fig:dagger_detail}
 \end{figure}
@@ -251,16 +256,16 @@ DAgger的理论优美，
 
 \subsection{卷积神经网络}
 
-卷积神经网络（CNN）\cite{Lecun1998CNN}通过局部感受野、权重共享与层级特征提取建立了视觉表征的基础范式。
-ResNet\cite{He2016ResNet}引入残差连接使训练更深的网络成为可能；
-VGG\cite{Simonyan2015VGG}以统一小卷积核展示了深度的重要性。
-在早期端到端避障工作中，
-CNN是默认的视觉编码器选择\cite{Loquercio2018DroNet,Sadeghi2017CAD2RL}。
+卷积神经网络（CNN）\cite{Lecun1998CNN} 凭借局部感受野、权重共享以及层级化特征提取，确立了计算机视觉表征的基础范式。
+其中，VGG \cite{Simonyan2015VGG} 通过堆叠小型卷积核验证了网络深度的关键作用，
+而 ResNet \cite{He2016ResNet} 引入的残差连接则有效解决了深层网络训练中的退化问题。
+在早期的端到端无人机避障研究中，
+CNN 是主流的视觉编码器方案 \cite{Loquercio2018DroNet,Sadeghi2017CAD2RL}。
 然而，
-CNN在全局结构关系建模方面受限于感受野大小：即使通过多层堆叠扩大理论感受野，
-实际有效感受野仍远小于输入尺寸\cite{Lecun1998CNN}。
-对于避障任务，
-这意味着CNN可能难以捕捉远距离障碍之间的空间关系。
+CNN 在建模全局结构关系方面受限于其固有的局部运算机制：尽管通过多层堆叠可扩大理论感受野，
+但研究表明其实际有效感受野（Effective Receptive Field）往往远小于输入图像尺寸 \cite{Lecun1998CNN}。
+在复杂避障任务中，
+这种局部性限制了模型捕捉跨区域长程依赖及远距离障碍物间空间逻辑关系的能力。
 
 \subsection{视觉Transformer（ViT）}
 
@@ -375,54 +380,53 @@ LSTM面临明确的局限：（1）长期依赖建模受限——虽然门控缓
 
 \subsection{结构化状态空间模型（S4）}
 
-结构化状态空间模型（SSM）基于连续时间线性状态空间方程进行序列建模\cite{Gu2022S4}：
+结构化状态空间模型（Structured State Space Models, SSMs）建立在经典控制理论的基础之上，通过连续时间线性常微分方程对序列数据进行建模 \cite{Gu2022S4}：
 \begin{equation}
   \mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) + \mathbf{B}\mathbf{x}(t), \quad \mathbf{y}(t) = \mathbf{C}\mathbf{h}(t) + \mathbf{D}\mathbf{x}(t)
   \label{eq:ssm}
 \end{equation}
-其中$\mathbf{h}(t) \in \mathbb{R}^{d_{\text{state}}}$为连续时间隐状态，
-$\mathbf{A} \in \mathbb{R}^{d_{\text{state}} \times d_{\text{state}}}$为状态转移矩阵，
-$\mathbf{B} \in \mathbb{R}^{d_{\text{state}} \times 1}$为输入投影矩阵，
-$\mathbf{C} \in \mathbb{R}^{1 \times d_{\text{state}}}$为输出投影矩阵。
+式中，$\mathbf{h}(t) \in \mathbb{R}^{d_{\text{state}}}$ 表示随时间演化的隐状态向量，
+$\mathbf{A} \in \mathbb{R}^{d_{\text{state}} \times d_{\text{state}}}$ 为状态转移矩阵，决定了系统的演化动力学；
+$\mathbf{B} \in \mathbb{R}^{d_{\text{state}} \times 1}$ 为输入投影矩阵，控制输入信号对状态的影响；
+$\mathbf{C} \in \mathbb{R}^{1 \times d_{\text{state}}}$ 为输出投影矩阵，负责从隐状态中重构输出特征。
 
-S4\cite{Gu2022S4}通过对矩阵$\mathbf{A}$的HiPPO\cite{Gu2020HiPPO}结构化初始化实现了长序列上的高效训练。
-后续工作S5\cite{Smith2023S5}进一步简化了实现；
-DSS\cite{Gu2022DSS}探索了对角参数化方案。
+为了解决长序列训练中的梯度问题，S4 \cite{Gu2022S4} 引入了 HiPPO \cite{Gu2020HiPPO} 矩阵对 $\mathbf{A}$ 进行特定的结构化初始化。
+此后的 S5 \cite{Smith2023S5} 通过简化实现降低了计算复杂度，
+而 DSS \cite{Gu2022DSS} 则进一步探索了对角化参数方案的有效性。
 
 \subsection{从连续到离散的零阶保持（ZOH）推导}
 
-在实际的离散时间系统中，
-需要将连续时间SSM离散化。
-零阶保持（Zero-Order Hold, ZOH）是最常用的离散化方法，
-其假设输入在采样间隔$\Delta$内保持恒定。
+鉴于现代计算硬件处理的是离散数据，
+必须将连续时间的 SSM 方程离散化。
+本研究采用零阶保持（Zero-Order Hold, ZOH）作为离散化策略，
+该方法假设输入信号在采样时间间隔 $\Delta$ 内保持恒定。
 
-给定连续时间方程$\mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) + \mathbf{B}\mathbf{x}(t)$，
-在$[t_k, t_{k+1})$区间内（$t_{k+1} = t_k + \Delta$），
-输入$\mathbf{x}(t) = \mathbf{x}_k$为常数。
-该常微分方程的解析解为：
+考虑连续时间方程 $\mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) + \mathbf{B}\mathbf{x}(t)$，
+在时间区间 $[t_k, t_{k+1})$ 内（其中 $t_{k+1} = t_k + \Delta$），
+设输入 $\mathbf{x}(t) = \mathbf{x}_k$ 为常数。
+该常微分方程在 $t_{k+1}$ 时刻的解析解可推导为：
 \begin{equation}
   \mathbf{h}(t_{k+1}) = e^{\mathbf{A}\Delta} \mathbf{h}(t_k) + \left(\int_0^{\Delta} e^{\mathbf{A}\tau} d\tau \right) \mathbf{B} \mathbf{x}_k
 \end{equation}
 
-令$\bar{\mathbf{A}} = e^{\mathbf{A}\Delta}$为离散化后的状态转移矩阵，
-$\bar{\mathbf{B}} = \left(\int_0^{\Delta} e^{\mathbf{A}\tau} d\tau \right) \mathbf{B} = (\mathbf{A})^{-1}(e^{\mathbf{A}\Delta} - \mathbf{I})\mathbf{B}$为离散化后的输入矩阵，
-则离散化后的递推方程为：
+定义离散化后的状态转移矩阵 $\bar{\mathbf{A}} = e^{\mathbf{A}\Delta}$，
+以及输入控制矩阵 $\bar{\mathbf{B}} = \left(\int_0^{\Delta} e^{\mathbf{A}\tau} d\tau \right) \mathbf{B} = \mathbf{A}^{-1}(e^{\mathbf{A}\Delta} - \mathbf{I})\mathbf{B}$，
+则离散时间下的递推方程可写作：
 \begin{equation}
   \mathbf{h}_k = \bar{\mathbf{A}} \mathbf{h}_{k-1} + \bar{\mathbf{B}} \mathbf{x}_k, \quad \mathbf{y}_k = \mathbf{C} \mathbf{h}_k
   \label{eq:ssm_discrete}
 \end{equation}
 
-这一形式揭示了SSM与LSTM的结构相似性：两者都是"状态 $\times$ 转移矩阵 + 输入 $\times$ 投影矩阵"的线性递推。
-然而，
-SSM的关键优势在于：（1）矩阵$\bar{\mathbf{A}}$可以通过对角化实现高效并行扫描\cite{Gu2022S4}；
-（2）连续时间参数化为离散化步长$\Delta$提供了自适应调节的空间。
+式 (\ref{eq:ssm_discrete}) 揭示了 SSM 与循环神经网络（如 RNN、LSTM）在形式上的同构性：两者均遵循“当前状态 = 转移矩阵 $\times$ 上一状态 + 输入投影”的线性递推逻辑。
+然而，SSM 具备显著的计算优势：
+（1）矩阵 $\bar{\mathbf{A}}$ 可被设计为对角结构，从而支持通过并行扫描算法（Parallel Scan）实现高效训练 \cite{Gu2022S4}；
+（2）作为连续时间模型的离散化近似，步长参数 $\Delta$ 赋予了模型适应不同采样频率的灵活性。
 
 \subsection{Mamba的选择性机制}
 
-在S4的基础上，
-Gu与Dao提出Mamba\cite{Gu2023Mamba}，
-核心创新是选择性机制：使参数$\mathbf{B}_t, \mathbf{C}_t$与离散化步长$\Delta_t$依赖于输入内容，
-增强模型对不同输入的自适应选择能力：
+在 S4 的基础上，Gu 与 Dao 提出的 Mamba 架构 \cite{Gu2023Mamba} 引入了核心的“选择性状态空间”（Selective State Space）机制。
+该机制打破了传统 SSM 参数时不变（Time-Invariant）的限制，
+使离散化参数 $\mathbf{B}_t, \mathbf{C}_t$ 及步长 $\Delta_t$ 能够根据当前输入 $\mathbf{x}_t$ 动态生成：
 \begin{equation}
   \Delta_t = \text{softplus}(\mathbf{W}_\Delta \mathbf{x}_t + \mathbf{b}_\Delta), \quad
   \mathbf{B}_t = \mathbf{W}_B \mathbf{x}_t, \quad
@@ -430,31 +434,29 @@ Gu与Dao提出Mamba\cite{Gu2023Mamba}，
   \label{eq:mamba_selective}
 \end{equation}
 
-选择性机制的直觉理解如下：
+这一“输入依赖性”（Input-Dependent）赋予了模型细粒度的内容感知与控制能力，其物理直觉可解释为：
 
 \begin{itemize}
-  \item $\Delta_t$控制"记忆保留时间"：当$\Delta_t$较大时，
-    $\bar{\mathbf{A}}_t = e^{\mathbf{A}\Delta_t}$趋近于零矩阵，
-    历史信息衰减加速，
-    模型更倾向于"忘记过去、关注当前"；
-    当$\Delta_t$较小时，
-    历史信息保留更多；
-     \item $\mathbf{B}_t$控制"什么信息写入"记忆：输入相关的$\mathbf{B}_t$使模型能够选择性地将当前输入的特定维度写入隐状态；
-     \item $\mathbf{C}_t$控制"从记忆中读取什么"信息：输入相关的$\mathbf{C}_t$使模型能够根据当前上下文从隐状态中提取最相关的信息。
-     \end{itemize}
+  \item $\Delta_t$ 调节“记忆的时间跨度”：
+    当 $\Delta_t$ 较大时，状态转移 $\bar{\mathbf{A}}_t = e^{\mathbf{A}\Delta_t}$ 的衰减加剧，
+    意味着模型倾向于忽略历史信息，聚焦于当前输入；
+    反之，较小的 $\Delta_t$ 则有助于长时记忆的保持。
+  \item $\mathbf{B}_t$ 控制“信息的写入强度”：
+    通过输入相关的 $\mathbf{B}_t$，模型能够有选择地过滤噪声，仅将当前输入中关键的特征维度写入隐状态。
+  \item $\mathbf{C}_t$ 决定“状态的读取焦点”：
+    动态的 $\mathbf{C}_t$ 允许模型根据当前上下文需求，从复杂的隐状态中精准提取最相关的信息分量。
+\end{itemize}
 
-对于控制任务而言，
-这种选择性机制具有天然的适配性：当障碍接近时，
-$\Delta_t$可以自适应地增大以提高对最新观测的敏感度（快速反应）；
-当飞行路径平坦时，
-$\Delta_t$减小以更好地利用历史信息进行平滑预测。
+在无人机避障控制场景中，这种选择性机制展现出天然的适配性：
+当遭遇突发障碍物时，模型可自适应地增大 $\Delta_t$ 以提升对最新观测的敏感度，实现快速响应；
+而在平稳飞行阶段，减小 $\Delta_t$ 则有助于利用长时历史信息平滑轨迹预测，抑制噪声干扰。
 
-SSM/Mamba的三层架构总览与选择性机制直觉如图~\ref{fig:mamba_overview}所示。
+图~\ref{fig:mamba_overview} 展示了 SSM/Mamba 的三层架构总览及选择性机制的直觉解释。
 
 \begin{figure}[htbp]
 \centering
-\includegraphics[width=0.95\textwidth]{pictures/Mamba.png}
-\caption{SSM/Mamba的三层架构总览。上层：连续时间状态空间方程$\mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) + \mathbf{B}\mathbf{x}(t)$，由矩阵$\mathbf{A}$驱动状态转移，$\mathbf{B}$控制输入投影，$\mathbf{C}$控制输出读取；中层：零阶保持（ZOH）离散化，将连续参数转化为离散递推$\bar{\mathbf{A}} = e^{\mathbf{A}\Delta}$；下层：Mamba选择性机制，$\Delta_t$、$\mathbf{B}_t$、$\mathbf{C}_t$均依赖输入$\mathbf{x}_t$动态生成。右侧展示了自适应控制直觉与LSTM门控结构的类比}
+\includegraphics[width=0.95\textwidth]{Image/图2-3_SSM与Mamba三层架构总览.png}
+\caption{SSM/Mamba 的三层架构总览。上层：连续时间状态空间方程 $\mathbf{h}'(t) = \mathbf{A}\mathbf{h}(t) + \mathbf{B}\mathbf{x}(t)$，其中 $\mathbf{A}$ 驱动状态演化，$\mathbf{B}$ 控制输入注入，$\mathbf{C}$ 负责状态读出；中层：基于零阶保持（ZOH）的离散化过程，将连续参数转化为离散递推形式 $\bar{\mathbf{A}} = e^{\mathbf{A}\Delta}$；下层：Mamba 的选择性机制，展示了参数 $\Delta_t$、$\mathbf{B}_t$、$\mathbf{C}_t$ 如何依赖输入 $\mathbf{x}_t$ 进行动态调制。右侧示意图类比了其自适应控制逻辑与 LSTM 门控机制的异同。}
 \label{fig:mamba_overview}
 \end{figure}
 
@@ -490,13 +492,13 @@ SSM/Mamba的三层架构总览与选择性机制直觉如图~\ref{fig:mamba_over
 
 \node[font=\scriptsize, color=red!60] at (3.5, -0.8) {$\mathbf{h}_t = \bar{\mathbf{A}}\mathbf{h}_{t-1} + \bar{\mathbf{B}}_t\mathbf{x}_t$, \quad $\mathbf{y}_t = \mathbf{C}_t\mathbf{h}_t$};
 \end{tikzpicture}
-\caption{SSM/Mamba离散化后的状态更新框图。下标$t$表示$\bar{\mathbf{B}}_t$、$\mathbf{C}_t$随输入动态变化（选择性机制）。}
+\caption{SSM/Mamba 离散化后的状态更新机制。下标 $t$ 强调了参数 $\bar{\mathbf{B}}_t$ 与 $\mathbf{C}_t$ 随输入动态变化的选择性特性。}
 \label{fig:ssm_block}
 \end{figure}
 
-离散化后的递推形式（图~\ref{fig:ssm_block}）与LSTM具有相似的递推结构。
-Mamba-2\cite{Dao2024Mamba2}进一步揭示了SSM与注意力机制之间的对偶性，
-统一了两种范式的理论基础。
+如图~\ref{fig:ssm_block} 所示，离散化后的 SSM 在形式上表现为线性递推，这与 LSTM 等循环神经网络结构高度相似。
+最新的研究工作 Mamba-2 \cite{Dao2024Mamba2} 进一步揭示了这种结构化状态空间模型与 Transformer 注意力机制之间的数学对偶性，
+从而在理论层面统一了序列建模的两种主流范式。
 
 \subsection{SSM对控制任务的意义}
 
@@ -553,18 +555,27 @@ Mamba-2\cite{Dao2024Mamba2}进一步揭示了SSM与注意力机制之间的对�
 
 \section{MambaVision：混合Mamba-Transformer视觉骨干}
 
-MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}是面向视觉应用的混合Mamba-Transformer backbone。
-其核心设计包括：（1）对Mamba模块进行面向视觉特征建模的重新设计，
-将一维序列建模扩展到二维空间特征；
-（2）通过系统消融验证在不同阶段融合自注意力块与Mamba块的最优配比——浅层使用Mamba捕捉局部空间特征，
-深层使用自注意力建模全局关系；
-（3）在ImageNet分类、COCO检测与ADE20K分割等基准上展示优于纯ViT与纯Mamba方案的效率--精度权衡。
+MambaVision \cite{Hatamizadeh2025MambaVisionCVPR} 提出了一种专为视觉任务定制的混合架构，
+旨在解决纯 SSM 模型在全局上下文建模上的先天不足 \cite{Zhu2024VisionMamba,Liu2024VMamba}。
+该工作对 Mamba 的原生范式进行了针对性的重构与扩展：
+首先，在微观设计上，
+该模型移除了 SSM 中的因果卷积限制，代之以标准的二维卷积以适应图像的空间属性，
+并引入了一个不含 SSM 的对称分支（Symmetric Branch），
+通过拼接（Concatenation）而非门控机制来增强特征的表示能力 \cite{Hatamizadeh2025MambaVisionCVPR}；
+其次，在宏观架构上，
+MambaVision 采用了分层设计：
+前两个阶段利用 CNN 残差块进行快速的高分辨率特征提取，
+而在深层阶段（Stage 3 \& 4）则采用了“Mamba 前置、Attention 后置”的混合策略 \cite{Hatamizadeh2025MambaVisionCVPR}。
+消融实验表明，
+在深层网络的末端引入自注意力（Self-Attention）块，
+能够以极小的计算代价显著补偿 SSM 在长程空间依赖（Long-range Spatial Dependency）捕捉上的短板 \cite{Hatamizadeh2025MambaVisionCVPR}。
+得益于此，MambaVision 在 ImageNet 分类及 COCO 检测任务上均取得了优于同量级纯 ViT 及纯 Mamba 模型的帕累托最优解（Pareto Front）\cite{Hatamizadeh2025MambaVisionCVPR}。
 
-Vision Mamba（Vim）\cite{Zhu2024VisionMamba}则采用另一条路线：以双向状态空间模型替代ViT中的自注意力机制，
-实现纯SSM视觉编码。
-两种方案分别代表了"混合"与"纯SSM"两条视觉骨干设计路线，
-本文在第5章对此进行控制变量实验。
-
+与之形成鲜明对比的是 Vision Mamba (Vim) \cite{Zhu2024VisionMamba}，
+该工作代表了“纯 SSM”视觉骨干的设计路线。
+Vim 摈弃了注意力机制，
+转而利用双向状态空间模型（Bidirectional SSM）对图像序列进行正反向扫描，
+试图在不引入 Transformer 的前提下实现全图上下文的覆盖 \cite{Zhu2024VisionMamba}。
 
 \section{仿真平台与数据来源}
 
@@ -610,13 +621,13 @@ Trees环境的独特挑战在于：（1）树干在低分辨率深度图中仅�
 \centering
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-\includegraphics[width=\textwidth]{pictures/Spheres.png}
+\includegraphics[width=\textwidth]{Image/图2-4a_Spheres环境实拍同分布.png}
 \centerline{(a) Spheres环境（同分布）}
 \end{minipage}
 \hfill
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-\includegraphics[width=\textwidth]{pictures/Trees.png}
+\includegraphics[width=\textwidth]{Image/图2-4b_Trees环境实拍分布外.png}
 \centerline{(b) Trees环境（分布外）}
 \end{minipage}
 \caption{Flightmare仿真平台中两类评测环境的实拍截图。(a) Spheres环境：三维空间中随机分布不同半径的球体障碍，训练数据在该环境中生成；(b) Trees环境：由树干与冠层构成的自然场景，策略从未在此环境中训练，用于测试零样本迁移泛化能力}
@@ -714,8 +725,7 @@ Trees环境不参与任何训练数据的生成，
 \section{评测协议与指标}
 
 本节固定全篇统一的评测协议与指标定义。
-后续各章实验直接引用本节表格与定义，
-不再重复。
+后续各章实验直接引用本节表格与定义。
 
 \subsection{统一评测协议}
 
@@ -871,8 +881,8 @@ Trees环境不参与任何训练数据的生成，
 \subsection{评测可审计规范}
 
 \begin{enumerate}
-为确保实验结论的可复现性与可追溯性，
-本文建立以下评测可审计规范： \item 随机种子固定：所有实验固定随机种子（包括PyTorch、NumPy、CUDA确定性模式与环境初始化种子）；
+\item 为确保实验结论的可复现性与可追溯性，本文建立以下评测可审计规范：
+\item 随机种子固定：所有实验固定随机种子（包括PyTorch、NumPy、CUDA确定性模式与环境初始化种子）；
  \item 环境参数记录：每次评测自动记录环境类型、障碍密度参数、目标速度档位与回合终止条件等关键配置；
  \item 状态重置时机：明确记录序列模型内部状态的重置时机（仅在回合边界），
 并通过运行时断言确保回合内状态的连续传播（详见第4章）；
@@ -889,84 +899,68 @@ Trees环境不参与任何训练数据的生成，
 
 \subsection{端到端视觉飞行控制}
 
-端到端控制通常以"视觉到控制"为核心。
-早期工作DroNet\cite{Loquercio2018DroNet}将CNN映射用于城市导航；
-CAD2RL\cite{Sadeghi2017CAD2RL}与Deep Drone Racing\cite{Kaufmann2018DeepDroneRacing}验证了仿真到现实迁移的可能性；
-Gandhi等\cite{Gandhi2017CollisionDrone}通过碰撞数据自监督学习避障；
-Kaufmann等的Deep Drone Acrobatics\cite{Kaufmann2020DeepDroneAcrobatics}将端到端扩展到极限机动动作。
-Loquercio等\cite{Loquercio2021HighSpeedWild}使用特权信息专家+域随机化实现了野外高速飞行；
-Kaufmann等的Swift系统\cite{Kaufmann2023SwiftNature}在竞速对抗中超越人类冠军。
-Pan等\cite{Pan2018AgileAutonomous}在自主驾驶场景中验证了端到端深度模仿学习的敏捷性。
-Shah等\cite{Shah2023GNM}提出的通用导航模型进一步将端到端范式推广到跨机器人平台。
-上述工作共同构成了"仿真学习+特权专家+域随机化"的标准范式。
+端到端控制范式致力于构建从原始感知数据到控制指令的直接映射，其发展呈现出从简单场景导航向极限敏捷机动演进的趋势。
+早期的探索性工作如 DroNet\cite{Loquercio2018DroNet}，成功将卷积神经网络（CNN）应用于城市环境的自主导航，初步验证了视觉模仿学习的可行性。
+随后，为了突破现实训练数据的获取瓶颈，
+CAD2RL\cite{Sadeghi2017CAD2RL} 与 Deep Drone Racing\cite{Kaufmann2018DeepDroneRacing} 率先证实了在仿真环境中训练并迁移至现实世界（Sim-to-Real）的有效性。
+在避障策略方面，Gandhi 等\cite{Gandhi2017CollisionDrone} 提出了一种基于碰撞数据的自监督学习机制，利用无人机的“试错”经历来提升安全性。
+
+随着对飞行性能要求的提升，研究重心逐渐转向高动态机动。
+Kaufmann 等的 Deep Drone Acrobatics\cite{Kaufmann2020DeepDroneAcrobatics} 将端到端方法扩展至翻滚等极限动作；
+Loquercio 等\cite{Loquercio2021HighSpeedWild} 确立了“特权专家蒸馏 + 域随机化”的标准范式，实现了野外环境下的高速穿越；
+Swift 系统\cite{Kaufmann2023SwiftNature} 更是结合深度强化学习，在竞速对抗任务中达到了超越人类冠军的水平。
+此外，Pan 等\cite{Pan2018AgileAutonomous} 验证了深度模仿学习在自动驾驶场景下的敏捷性，
+而 Shah 等\cite{Shah2023GNM} 提出的通用导航模型（GNM）则进一步探索了跨机器人平台的通用端到端策略。
+上述工作共同奠定了当前主流的“仿真学习--专家指导--域迁移”的技术基石。
 
 \subsection{模块化自主飞行}
 
-模块化方案的代表性工作包括：ORB-SLAM2\cite{MurArtal2017ORBSLAM2}和ORB-SLAM3\cite{Campos2021ORBSLAM3}（稀疏特征SLAM）、VINS-Mono\cite{Qin2018VINSMONO}（视觉惯性估计）、LSD-SLAM\cite{Engel2014LSDSLAM}（大尺度直接SLAM）、RRT*\cite{Karaman2011SamplingOptimal}（渐近最优采样规划）、FASTER\cite{Faust2018FASTER}（安全回退轨迹）。
-SLAM方面，
-Cadena等\cite{Cadena2016SLAMSurvey}全面综述了从经典到鲁棒感知时代的SLAM发展历程。
-轨迹优化方面，
-Mellinger与Kumar\cite{Mellinger2011MinSnapTrajectory}的最小snap轨迹生成、Richter等\cite{Richter2016MinSnapPoly}的多项式轨迹规划奠定了理论基础；
-MPC方面，
-Kamel等\cite{Kamel2017NMPC}和Neunert等\cite{Neunert2016MPC_Quadrotor}分别将非线性MPC应用于四旋翼轨迹跟踪。
+传统的模块化自主飞行系统通常遵循“感知--规划--控制”的分层架构。
+在感知与状态估计层面，
+ORB-SLAM 系列\cite{MurArtal2017ORBSLAM2,Campos2021ORBSLAM3} 确立了稀疏特征法的标杆，
+LSD-SLAM\cite{Engel2014LSDSLAM} 探索了直接法在大尺度环境下的应用，
+而 VINS-Mono\cite{Qin2018VINSMONO} 则通过视觉惯性紧耦合显著提升了鲁棒性。
+Cadena 等\cite{Cadena2016SLAMSurvey} 的综述文章系统总结了 SLAM 技术从滤波器时代迈向鲁棒感知时代的演进历程。
+在规划与控制层面，
+基于梯度的轨迹优化（如 Minimum Snap\cite{Mellinger2011MinSnapTrajectory} 及其多项式扩展\cite{Richter2016MinSnapPoly}）与基于采样的 RRT*\cite{Karaman2011SamplingOptimal} 构成了经典理论基础；
+非线性模型预测控制（NMPC）\cite{Kamel2017NMPC,Neunert2016MPC_Quadrotor} 则进一步提升了四旋翼在动态约束下的轨迹跟踪性能。
 
-国内方面，
-高翔等\cite{Gao2019SLAMSurvey}从特征法与直接法两条路线出发，
-系统分析了视觉SLAM在不同场景下的精度--效率权衡，
-并指出语义信息融合是下一阶段的关键方向；
-张弓等\cite{Zhang2018VIOSLAM}将视觉惯性SLAM方法按前端跟踪策略与后端优化框架进行分类，
-明确了紧耦合方案在高动态平台上的鲁棒性优势；
-吴潇等\cite{Wu2022QuadSLAM}针对无人机平台的振动干扰、快速运动模糊与有限算力三个特殊挑战，
-对比分析了轻量级视觉SLAM方案的可部署性。
-在轨迹规划方面，
-Zhou等提出Fast-Planner\cite{Zhou2019FastPlanner}，
-采用运动学路径搜索与B样条轨迹优化的两阶段方案实现未知环境中的在线安全飞行；
-其后续工作EGO-Planner\cite{Zhou2021EGOPlanner}进一步消除了对欧几里得符号距离场（ESDF）的依赖，
-直接从障碍点云计算碰撞梯度，
-将规划计算量降低一个数量级。
-何承坤等\cite{He2021QuadTrajectory}从最小snap多项式、B样条、安全走廊三条技术路线出发，
-对比分析了四旋翼轨迹优化在实时性与安全性之间的设计折中；
-张涛等\cite{Zhang2020AutoPilotSurvey}将无人机自主飞行控制技术按感知、决策、执行三层架构进行归纳，
-指出多传感器融合与自适应控制的集成是高可靠自主飞行的核心难题；
-刘小雄等\cite{Liu2020QuadControl}从反应式避障、基于地图的全局规划、学习型策略三个层面对四旋翼自主导航技术进行分层分析，
-指出端到端学习方法在低延迟要求下具有潜在优势但可解释性不足。
-
-这些方法在低中速结构化场景中可靠，
-但在高速密集障碍环境中面临延迟与误差传播的固有局限。
+国内学者在该领域亦做出了系统性贡献。
+高翔等\cite{Gao2019SLAMSurvey} 深入分析了特征法与直接法在精度与效率上的权衡，并前瞻性地指出语义融合是下一阶段的关键突破口；
+张弓等\cite{Zhang2018VIOSLAM} 与吴潇等\cite{Wu2022QuadSLAM} 则分别针对高动态鲁棒性与机载计算受限场景，详细论证了紧耦合 VIO 与轻量化 SLAM 的部署优势。
+在轨迹规划领域，
+Zhou 等提出的 Fast-Planner\cite{Zhou2019FastPlanner} 及其后续 EGO-Planner\cite{Zhou2021EGOPlanner} 代表了显著的技术跨越：
+后者成功移除了对欧几里得符号距离场（ESDF）的依赖，通过直接计算障碍点云的碰撞梯度，将规划效率提升了一个数量级。
+此外，何承坤等\cite{He2021QuadTrajectory} 对比了多项式优化与 B 样条技术在实时性上的折中，
+张涛等\cite{Zhang2020AutoPilotSurvey} 与刘小雄等\cite{Liu2020QuadControl} 的综述文章则从系统架构层面指出，
+尽管模块化方法在结构化场景中表现成熟，
+但在高速密集障碍环境中，其固有的感知延迟与模块间误差累积问题仍是制约性能的瓶颈。
 
 \subsection{安全性与部署侧约束}
 
-Brunke等\cite{Brunke2022SafeLearningReview}系统总结了安全学习控制的主要路线。
-控制障碍函数（CBF）\cite{Ames2019CBFSurvey}为安全约束提供形式化工具；
-Cheng等\cite{Cheng2019RLwithCBF}将CBF嵌入强化学习；
-Wabersich等\cite{Wabersich2018MPSC}提出MPSC预测安全滤波；
-Fisac等\cite{Fisac2019SafeRL}建立了通用的安全学习框架。
-Garc\'{i}a与Fern\'{a}ndez\cite{GarciaPineda2015SafeRLSurvey}从更广泛的视角全面综述了安全强化学习。
-Dalal等\cite{Dalal2018SafeExploration}探索了连续动作空间中的安全探索方法。
+随着学习型控制方法的兴起，如何通过形式化手段保障系统的安全性成为研究热点。
+Brunke 等\cite{Brunke2022SafeLearningReview} 对安全学习控制路线进行了系统梳理。
+目前的主流方案包括：利用控制障碍函数（CBF）\cite{Ames2019CBFSurvey} 构建安全边界，
+并将其嵌入强化学习框架以约束探索行为\cite{Cheng2019RLwithCBF}；
+以及基于模型预测安全控制（MPSC）\cite{Wabersich2018MPSC} 的预测滤波机制。
+Fisac 等\cite{Fisac2019SafeRL} 与 Garc\'{i}a 等\cite{GarciaPineda2015SafeRLSurvey} 则分别建立了通用的安全学习框架与理论综述。
 
-在国内，
-雷志勇等\cite{Lei2020DRLAvoidance}将深度Q网络（DQN）与连续动作空间策略梯度方法应用于无人机避障任务，
-验证了稀疏激光雷达输入下DRL策略的实时决策能力；
-陈杰等\cite{Chen2023DRLDroneReview}从状态表征、奖励函数设计、训练稳定性三个维度对DRL在无人机导航中的应用进行分类评述，
-指出仿真到实际迁移（Sim-to-Real）的鲁棒性瓶颈是制约DRL落地的主要因素；
-严旭等\cite{Yan2021DRLObstacle}提出将深度图与惯性测量数据融合作为DRL状态输入的方案，
-在三维动态障碍场景中实现了优于传统势场法的避障成功率；
-李超等\cite{Li2022RLUAV}对比分析了基于值函数与基于策略梯度两类强化学习方法在无人机路径规划中的收敛速度与最终性能差异，
-发现近端策略优化（PPO）在连续动作空间中表现最为稳定；
-朱福利等\cite{Zhu2021DeepLearningUAV}从目标检测、语义分割、深度估计三个视觉子任务出发，
-分析了深度学习在无人机感知系统中的部署约束与加速策略，
-指出模型压缩与边缘推理是实现机载实时处理的关键技术。
+针对无人机平台的特殊部署约束，国内研究重点关注算法的实时性与迁移鲁棒性。
+雷志勇等\cite{Lei2020DRLAvoidance} 验证了深度 Q 网络（DQN）在稀疏激光雷达输入下的实时决策能力；
+严旭等\cite{Yan2021DRLObstacle} 提出深度图与惯性数据融合方案，有效提升了三维动态场景下的避障成功率。
+在训练算法选择上，李超等\cite{Li2022RLUAV} 的对比研究表明，近端策略优化（PPO）在连续动作空间任务中具有最优的稳定性与收敛速度。
+然而，正如陈杰等\cite{Chen2023DRLDroneReview} 所指出的，仿真到实体（Sim-to-Real）的鸿沟仍是限制 DRL 广泛落地的核心难题。
+朱福利等\cite{Zhu2021DeepLearningUAV} 则从边缘计算视角强调，模型压缩与轻量化推理是实现机载实时感知不可或缺的关键技术。
 
 \subsection{Sim-to-Real迁移}
 
-Sim-to-Real迁移是端到端控制从仿真走向实际部署的关键桥梁。
-Tobin等\cite{Tobin2017DomainRandomization}提出域随机化方法，
-通过在仿真中随机化视觉属性来弥合仿真与现实的差距。
-Peng等\cite{Peng2018SimtoRealRL}进一步将动力学随机化引入机器人控制迁移。
-Molchanov等\cite{Molchanov2019SimRL}验证了低层鲁棒控制策略向多个四旋翼平台的迁移。
-Zhao等\cite{Zhao2020SimtoReal}对深度强化学习的Sim-to-Real迁移进行了全面综述。
-本文当前工作在Flightmare仿真中完成验证，
-Sim-to-Real迁移作为未来工作方向在第5章讨论。
+Sim-to-Real 迁移是弥合仿真训练与物理部署差距的关键桥梁。
+其核心挑战在于缩小感知与动力学的分布偏移。
+Tobin 等\cite{Tobin2017DomainRandomization} 首创了域随机化（Domain Randomization）方法，通过在仿真中大幅扰动纹理与光照等视觉属性，使模型习得对视觉噪声的“不变性”；
+Peng 等\cite{Peng2018SimtoRealRL} 与 Molchanov 等\cite{Molchanov2019SimRL} 随后将这一思想扩展至动力学参数，实现了策略向不同物理平台的鲁棒迁移。
+Zhao 等\cite{Zhao2020SimtoReal} 对此进行了全面综述。
+本文主要在 Flightmare 高保真仿真环境中进行算法验证，
+关于物理实机部署中的 Sim-to-Real 迁移策略，将在第 5 章作为未来工作方向进行讨论。
 
 \subsection{方法谱系总结}
 
