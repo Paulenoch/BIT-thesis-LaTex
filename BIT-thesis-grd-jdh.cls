@@ -6,7 +6,7 @@
 %%==================================================
   
 %% math packages -- conflict with xunicode
-\RequirePackage{amsmath,amsthm,amsfonts,amssymb,bm,mathrsfs,mathptmx}
+\RequirePackage{amsmath,amsthm,amsfonts,amssymb,bm}
 % 直立希腊字母字体
 \RequirePackage{upgreek}
 
@@ -333,7 +333,7 @@ footskip=0.7cm% 页脚 1.8cm %
 \RequirePackage{fontspec}
 \RequirePackage{xltxtra} % \XeTeX Logo
 %% Times Fonts
-\RequirePackage{times}
+\RequirePackage{newtxtext,newtxmath}
 %% Set Old Fonts Encoding 
 \usepackage[T1]{fontenc}
 

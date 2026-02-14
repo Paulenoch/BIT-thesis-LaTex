@@ -2,32 +2,47 @@
 
 \section{本章引言}
 
-前两章分别确立了ViT+Mamba策略网络的有效性（第3章）与流式部署一致性机制（第4章）。在此基础上，一个自然的架构设计问题浮现：能否将空间与时间维度的建模统一到同一架构范式下？
+前两章分别确立了ViT+Mamba策略网络的有效性（第3章）与流式部署一致性机制（第4章）。
+在此基础上，
+一个自然的架构设计问题浮现：能否将空间与时间维度的建模统一到同一架构范式下？
 
-ViT作为空间编码器具有强表征能力，但其$O(n^2)$自注意力复杂度在机载算力受限的部署场景中可能成为瓶颈。近期MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}将Mamba思想引入视觉backbone，在保持高表征能力的同时实现更优的效率--精度权衡。Vision Mamba（Vim）\cite{Zhu2024VisionMamba}则以纯双向SSM替代自注意力进行视觉编码。
+ViT作为空间编码器具有强表征能力，
+但其$O(n^2)$自注意力复杂度在机载算力受限的部署场景中可能成为瓶颈。
+近期MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}将Mamba思想引入视觉backbone，
+在保持高表征能力的同时实现更优的效率--精度权衡。
+Vision Mamba（Vim）\cite{Zhu2024VisionMamba}则以纯双向SSM替代自注意力进行视觉编码。
 
-若将视觉编码器替换为MambaVision，整体架构将形成"SSM（空间）+ SSM（时间）"的全SSM架构。本章定位为架构统一性的前瞻探索：其价值不仅在于性能比较，更在于考察空间--时间同构建模在端到端视觉避障任务中的可行性与能力边界。
+若将视觉编码器替换为MambaVision，
+整体架构将形成"SSM（空间）+ SSM（时间）"的全SSM架构。
+本章定位为架构统一性的前瞻探索：其价值不仅在于性能比较，
+更在于考察空间--时间同构建模在端到端视觉避障任务中的可行性与能力边界。
 
 
 \section{方法：MambaVision集成}
 
 \subsection{MambaVision视觉骨干}
 
-MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}采用分层设计，在不同阶段融合Mamba块与自注意力块。其核心创新包括：
 \begin{enumerate}
-  \item 面向视觉特征的Mamba模块重设计，使SSM适配二维空间结构；
-  \item 系统消融验证各阶段Mamba/Attention配比的最优方案；
-  \item 在ImageNet分类、COCO检测等基准上取得优于纯ViT与纯Mamba的效率--精度权衡。
-\end{enumerate}
+MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}采用分层设计，
+在不同阶段融合Mamba块与自注意力块。
+其核心创新包括： \item 面向视觉特征的Mamba模块重设计，
+使SSM适配二维空间结构；
+ \item 系统消融验证各阶段Mamba/Attention配比的最优方案；
+ \item 在ImageNet分类、COCO检测等基准上取得优于纯ViT与纯Mamba的效率--精度权衡。
+ \end{enumerate}
 
 \subsection{接口对齐}
 
-替换视觉编码器需确保输出维度与后续时序模块的接口一致。MambaVision的最终特征经全局池化后对齐至512维，与ViT输出维度一致，随后同样与轻量状态拼接、投影至$d_{\text{model}}=192$维输入Temporal Mamba。
+替换视觉编码器需确保输出维度与后续时序模块的接口一致。
+MambaVision的最终特征经全局池化后对齐至512维，
+与ViT输出维度一致，
+随后同样与轻量状态拼接、投影至$d_{\text{model}}=192$维输入Temporal Mamba。
 
 
 \section{控制变量实验设计}
 
-MambaVision替换实验采用严格的控制变量设计，如表~\ref{tab:control_var}所示。
+MambaVision替换实验采用严格的控制变量设计，
+如表~\ref{tab:control_var}所示。
 
 \begin{table}[htbp]
 \centering
@@ -52,25 +67,20 @@ MambaVision替换实验采用严格的控制变量设计，如表~\ref{tab:contr
 \end{tabular}
 \end{table}
 
-通过该设计，性能差异可严格归因于视觉编码器的架构差异。评测维度包括四个方面：
 \begin{enumerate}
-  \item 安全性：碰撞率与碰撞事件次数；
-  \item OOD泛化：Trees零样本性能；
-  \item 推理效率：推理延迟与GPU显存占用；
-  \item 平滑性：Command Jerk变化。
-\end{enumerate}
+通过该设计，
+性能差异可严格归因于视觉编码器的架构差异。
+评测维度包括四个方面： \item 安全性：碰撞率与碰撞事件次数；
+ \item OOD泛化：Trees零样本性能；
+ \item 推理效率：推理延迟与GPU显存占用；
+ \item 平滑性：Command Jerk变化。
+ \end{enumerate}
 
 
 \section{案例研究与实验}
 
-% ============================================================
-% TODO: MambaVision实验尚未完成，以下为实验框架与待填充位置
-% 实验完成后需补充：
-% 1. MambaVision vs ViT 在 Spheres/Trees 各速度档的碰撞率/碰撞次数对比表
-% 2. 推理时间与显存占用对比柱状图
-% 3. Command Jerk 对比
-% 4. 定性分析与讨论
-% ============================================================
+% ============================================================ % TODO: MambaVision实验尚未完成，
+以下为实验框架与待填充位置 % 实验完成后需补充： % 1. MambaVision vs ViT 在 Spheres/Trees 各速度档的碰撞率/碰撞次数对比表 % 2. 推理时间与显存占用对比柱状图 % 3. Command Jerk 对比 % 4. 定性分析与讨论 % ============================================================
 
 \subsection{性能对比（安全性与成功率）}
 
@@ -108,8 +118,7 @@ MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \tex
 
 推理效率对比结果将汇总于表~\ref{tab:mv_efficiency}。
 
-% TODO: 推理延迟/显存柱状图
-% TODO: Accuracy-Throughput Pareto图
+% TODO: 推理延迟/显存柱状图 % TODO: Accuracy-Throughput Pareto图
 
 \begin{table}[htbp]
 \centering
@@ -131,7 +140,8 @@ MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} \\
 
 \subsection{分辨率与序列长度扩展（可选）}
 
-[TODO: 可选实验，若时间允许]
+[TODO: 可选实验，
+若时间允许]
 
 该实验旨在验证SSM视觉骨干在更高分辨率或更长序列条件下是否保持线性复杂度优势。
 
@@ -140,52 +150,82 @@ MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} \\
 
 \subsection{MambaVision vs ViT的适用场景}
 
-[TODO: 待实验结果出炉后，基于数据讨论以下问题]
+[TODO: 待实验结果出炉后，
+基于数据讨论以下问题]
 
 \begin{itemize}
   \item 在什么速度/障碍条件下MambaVision更好？
-  \item 在什么条件下ViT更稳定？
-  \item 效率提升是否足以弥补可能的精度差异？
-\end{itemize}
+     \item 在什么条件下ViT更稳定？
+     \item 效率提升是否足以弥补可能的精度差异？
+     \end{itemize}
 
 \subsection{未来方向}
 
 \begin{itemize}
   \item 更强的预训练：在大规模视觉数据上预训练MambaVision骨干后迁移到避障任务；
-  \item Sim-to-Real迁移：结合域随机化与真实飞行数据校正，部署到真实四旋翼平台；
-  \item 安全过滤：叠加CBF\cite{Ames2019CBFSurvey}/MPC安全滤波\cite{Wabersich2018MPSC}，提供形式化安全保证；
-  \item 动态障碍：扩展评测环境以包含动态障碍物。
-\end{itemize}
+     \item Sim-to-Real迁移：结合域随机化与真实飞行数据校正，
+    部署到真实四旋翼平台；
+     \item 安全过滤：叠加CBF\cite{Ames2019CBFSurvey}/MPC安全滤波\cite{Wabersich2018MPSC}，
+    提供形式化安全保证；
+     \item 动态障碍：扩展评测环境以包含动态障碍物。
+     \end{itemize}
 
 
 \section{全文总结与展望}
 
 \subsection{主要工作与核心发现}
 
-本文面向高速端到端视觉避障控制任务，围绕"时序建模升级与训练方法、流式部署一致性、全SSM架构探索"三个核心维度，构建了完整的端到端闭环控制系统，主要贡献如下：
+本文面向高速端到端视觉避障控制任务，
+围绕"时序建模升级与训练方法、流式部署一致性、全SSM架构探索"三个核心维度，
+构建了完整的端到端闭环控制系统，
+主要贡献如下：
 
-（1）ViT+Mamba高速端到端避障策略（第3章）。构建以ViT空间编码、Mamba时序聚合与线性控制头为核心的策略网络。在5个速度档与Spheres/Trees双环境下，ViT+Mamba在高速段碰撞率与碰撞事件次数显著优于ViT+LSTM基线，且分布外泛化优势同样显著。DAgger闭环数据增强进一步降低碰撞频次，跨试验标准差显著收敛。RACS动态速率限制以低于0.1ms的开销实现Jerk显著降低。
+（1）ViT+Mamba高速端到端避障策略（第3章）。
+构建以ViT空间编码、Mamba时序聚合与线性控制头为核心的策略网络。
+在5个速度档与Spheres/Trees双环境下，
+ViT+Mamba在高速段碰撞率与碰撞事件次数显著优于ViT+LSTM基线，
+且分布外泛化优势同样显著。
+DAgger闭环数据增强进一步降低碰撞频次，
+跨试验标准差显著收敛。
+RACS动态速率限制以低于0.1ms的开销实现Jerk显著降低。
 
-（2）流式部署一致性与状态生命周期管理（第4章）。系统揭示了序列模型在端到端控制流式部署中的关键陷阱：状态管理错误导致碰撞率从0\%飙升至90\%、Mean Y Drift从0.022m增至0.770m。提出回合边界级状态管理协议与硬防护机制（运行时断言、配置锁定、可审计日志），将部署一致性从经验问题转化为可验证问题。
+（2）流式部署一致性与状态生命周期管理（第4章）。
+系统揭示了序列模型在端到端控制流式部署中的关键陷阱：状态管理错误导致碰撞率从0\%飙升至90\%、Mean Y Drift从0.022m增至0.770m。
+提出回合边界级状态管理协议与硬防护机制（运行时断言、配置锁定、可审计日志），
+将部署一致性从经验问题转化为可验证问题。
 
-（3）全SSM架构探索（第5章）。在保持时序模块与训练流程完全不变的条件下，将视觉编码器替换为MambaVision，形成空间--时间统一的SSM架构，为理解SSM在视觉--运动控制任务中的能力边界提供实证基础。
+（3）全SSM架构探索（第5章）。
+在保持时序模块与训练流程完全不变的条件下，
+将视觉编码器替换为MambaVision，
+形成空间--时间统一的SSM架构，
+为理解SSM在视觉--运动控制任务中的能力边界提供实证基础。
 
 \subsection{不足与局限性}
 
 \begin{enumerate}
-  \item 仿真环境局限：所有实验在Flightmare仿真平台中完成，尚未进行Sim-to-Real验证；
-  \item 静态障碍假设：评测环境中障碍物均为静态，未涉及动态障碍避障；
-  \item 单一传感模态：仅使用单目深度图像，未融合RGB、激光雷达或事件相机等多模态信息；
-  \item DAgger规模有限：仅3轮迭代，每轮18条轨迹，DAgger的上界有待更大规模验证；
-  \item RACS的启发式特性：$\delta_t$基于最小深度启发式规则，缺乏形式化安全保证。
-\end{enumerate}
+  \item 仿真环境局限：所有实验在Flightmare仿真平台中完成，
+    尚未进行Sim-to-Real验证；
+     \item 静态障碍假设：评测环境中障碍物均为静态，
+    未涉及动态障碍避障；
+     \item 单一传感模态：仅使用单目深度图像，
+    未融合RGB、激光雷达或事件相机等多模态信息；
+     \item DAgger规模有限：仅3轮迭代，
+    每轮18条轨迹，
+    DAgger的上界有待更大规模验证；
+     \item RACS的启发式特性：$\delta_t$基于最小深度启发式规则，
+    缺乏形式化安全保证。
+     \end{enumerate}
 
 \subsection{未来工作展望}
 
 \begin{enumerate}
-  \item 仿真到真实迁移：结合域随机化、系统辨识与真实飞行数据校正，将策略部署到真实四旋翼平台；
-  \item 动态障碍应对：扩展评测环境以包含动态障碍物，探索时变环境中的避障能力；
-  \item 多模态融合：探索将RGB图像、事件相机等多模态信息融合到视觉编码器中；
-  \item RACS安全升级：将启发式规则升级为基于TTC或碰撞概率的数据驱动风险估计，或与CBF/MPSC融合；
-  \item DAgger扩展：增加迭代轮次与采集规模，在更困难环境配置下探索收益上界。
-\end{enumerate}
+  \item 仿真到真实迁移：结合域随机化、系统辨识与真实飞行数据校正，
+    将策略部署到真实四旋翼平台；
+     \item 动态障碍应对：扩展评测环境以包含动态障碍物，
+    探索时变环境中的避障能力；
+     \item 多模态融合：探索将RGB图像、事件相机等多模态信息融合到视觉编码器中；
+     \item RACS安全升级：将启发式规则升级为基于TTC或碰撞概率的数据驱动风险估计，
+    或与CBF/MPSC融合；
+     \item DAgger扩展：增加迭代轮次与采集规模，
+    在更困难环境配置下探索收益上界。
+     \end{enumerate}

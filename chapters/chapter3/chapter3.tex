@@ -2,17 +2,24 @@
 
 \section{本章引言}
 
-高速密集障碍环境对端到端避障策略提出了三方面的迫切需求：（1）时序聚合能力——单帧深度图像受运动模糊、噪声与遮挡影响，难以支撑可靠决策；（2）训练--部署分布对齐——行为克隆固有的分布偏移问题在高速段尤为严重；（3）平滑性约束——更敏捷的避障策略往往伴随更高的控制指令抖动。
+高速密集障碍环境对端到端避障策略提出了三方面的迫切需求：（1）时序聚合能力——单帧深度图像受运动模糊、噪声与遮挡影响，
+难以支撑可靠决策；
+（2）训练--部署分布对齐——行为克隆固有的分布偏移问题在高速段尤为严重；
+（3）平滑性约束——更敏捷的避障策略往往伴随更高的控制指令抖动。
 
-现有端到端避障方案多以CNN/LSTM为核心\cite{Loquercio2021HighSpeedWild}，在时序建模能力与计算效率上存在改进空间。基于结构化状态空间模型的Mamba\cite{Gu2023Mamba}以线性复杂度实现高效时序聚合，为高速闭环控制提供了新的可能。
+现有端到端避障方案多以CNN/LSTM为核心\cite{Loquercio2021HighSpeedWild}，
+在时序建模能力与计算效率上存在改进空间。
+基于结构化状态空间模型的Mamba\cite{Gu2023Mamba}以线性复杂度实现高效时序聚合，
+为高速闭环控制提供了新的可能。
 
-本章提出以ViT空间编码、Mamba时序聚合与线性控制头为核心的端到端策略网络，构建BC+DAgger+RACS的完整训练--部署系统。本章的贡献包括：
 \begin{enumerate}
-  \item ViT+Mamba策略网络架构设计与BC训练；
-  \item DAgger闭环数据增强缓解分布偏移；
-  \item RACS动态速率限制控制平滑器；
-  \item 完整的案例研究与实验验证（见第\ref{sec:ch3_exp}节）。
-\end{enumerate}
+本章提出以ViT空间编码、Mamba时序聚合与线性控制头为核心的端到端策略网络，
+构建BC+DAgger+RACS的完整训练--部署系统。
+本章的贡献包括： \item ViT+Mamba策略网络架构设计与BC训练；
+ \item DAgger闭环数据增强缓解分布偏移；
+ \item RACS动态速率限制控制平滑器；
+ \item 完整的案例研究与实验验证（见第\ref{sec:ch3_exp}节）。
+ \end{enumerate}
 
 图~\ref{fig:ch3_structure}给出本章的组织结构与对应贡献。
 
@@ -40,11 +47,14 @@
 
 \section{问题形式化}
 
-在第2章任务定义的基础上，本章明确策略网络的符号体系。在每个控制周期$t$，策略接收：
 \begin{itemize}
-  \item 深度图像观测$D_t \in \mathbb{R}^{60 \times 90}$（乘以缩放因子$\alpha = 0.09$归一化）；
-  \item 轻量状态$s_t = [q_t, \tilde{v}^{\text{target}}]$（姿态四元数 + 归一化目标速度，共5维）。
-\end{itemize}
+在第2章任务定义的基础上，
+本章明确策略网络的符号体系。
+在每个控制周期$t$，
+策略接收： \item 深度图像观测$D_t \in \mathbb{R}^{60 \times 90}$（乘以缩放因子$\alpha = 0.09$归一化）；
+ \item 轻量状态$s_t = [q_t, \tilde{v}^{\text{target}}]$（姿态四元数 + 归一化目标速度，
+共5维）。
+ \end{itemize}
 
 策略输出世界坐标系下的速度指令：
 \begin{equation}
@@ -56,14 +66,21 @@
   \mathcal{L}_{\text{BC}} = \frac{1}{T'} \sum_{t=t_{\text{burn}}+1}^{T} \|\mathbf{v}_t^{\text{pred}} - \mathbf{v}_t^{\text{expert}}\|_2^2
   \label{eq:bc_loss_ch3}
 \end{equation}
-其中$T'$为有效序列长度（扣除burn-in步数$t_{\text{burn}}=20$），前20步仅用于预热时序模型内部状态，其输出不参与损失计算。burn-in的设计动机在于：序列模型在接收前若干步输入时，隐状态尚未稳定，此时的输出不能代表模型的真实时序聚合能力。将这些步骤排除在损失之外可以避免梯度信号被不稳定的早期输出污染。
+其中$T'$为有效序列长度（扣除burn-in步数$t_{\text{burn}}=20$），
+前20步仅用于预热时序模型内部状态，
+其输出不参与损失计算。
+burn-in的设计动机在于：序列模型在接收前若干步输入时，
+隐状态尚未稳定，
+此时的输出不能代表模型的真实时序聚合能力。
+将这些步骤排除在损失之外可以避免梯度信号被不稳定的早期输出污染。
 
 
 \section{模型结构}
 
 \subsection{总体架构}
 
-本文的端到端策略网络采用"空间编码+时序聚合+控制头"三段式架构，如图~\ref{fig:arch_overview}所示。
+本文的端到端策略网络采用"空间编码+时序聚合+控制头"三段式架构，
+如图~\ref{fig:arch_overview}所示。
 
 \begin{figure}[htbp]
 \centering
@@ -103,7 +120,11 @@
 
 \subsection{视觉编码器：轻量化ViT}
 
-视觉编码器采用轻量化的2-stage ViT架构：第一阶段使用Patch Size $7 \times 7$、Stride 4的卷积嵌入将$60 \times 90$的深度图分割为$16 \times 24$的patch token序列（32通道）；经Transformer编码块后，第二阶段以Patch Size $3 \times 3$、Stride 2下采样至$8 \times 12$（64通道），最终全局池化为512维向量。表~\ref{tab:vit_tensor_ch3}给出各阶段张量尺寸。
+视觉编码器采用轻量化的2-stage ViT架构：第一阶段使用Patch Size $7 \times 7$、Stride 4的卷积嵌入将$60 \times 90$的深度图分割为$16 \times 24$的patch token序列（32通道）；
+经Transformer编码块后，
+第二阶段以Patch Size $3 \times 3$、Stride 2下采样至$8 \times 12$（64通道），
+最终全局池化为512维向量。
+表~\ref{tab:vit_tensor_ch3}给出各阶段张量尺寸。
 
 \begin{table}[htbp]
 \centering
@@ -126,7 +147,8 @@ Stage 2 编码 & $8 \times 12 \times 64$ & -- & $8 \times 12 \times 64$ & 64 \\
 
 \subsection{时序聚合模块：Temporal Mamba}
 
-时序聚合模块采用4层Mamba\cite{Gu2023Mamba}，配置如表~\ref{tab:mamba_config_ch3}所示。
+时序聚合模块采用4层Mamba\cite{Gu2023Mamba}，
+配置如表~\ref{tab:mamba_config_ch3}所示。
 
 \begin{table}[htbp]
 \centering
@@ -152,15 +174,26 @@ Mamba的离散化状态更新方程为：
   \mathbf{y}_t = \mathbf{C}_t \mathbf{h}_t
   \label{eq:mamba_discrete_ch3}
 \end{equation}
-其中$\bar{\mathbf{A}}, \bar{\mathbf{B}}$为零阶保持离散化后的参数矩阵（推导见第2章2.4.3节），$\mathbf{B}_t, \mathbf{C}_t, \Delta_t$随输入动态变化（选择性机制）。
+其中$\bar{\mathbf{A}}, \bar{\mathbf{B}}$为零阶保持离散化后的参数矩阵（推导见第2章2.4.3节），
+$\mathbf{B}_t, \mathbf{C}_t, \Delta_t$随输入动态变化（选择性机制）。
 
 \subsection{特征融合与控制头}
 
-ViT输出的512维视觉特征$\mathbf{f}_{\text{vis}}$与5维辅助特征$\mathbf{f}_{\text{aux}}$拼接后线性投影至$d_{\text{model}}=192$维，输入Mamba模块。Mamba输出经线性层映射为3维速度指令$\mathbf{v}_{\text{raw}}$。网络总参数量约3.50M。
+ViT输出的512维视觉特征$\mathbf{f}_{\text{vis}}$与5维辅助特征$\mathbf{f}_{\text{aux}}$拼接后线性投影至$d_{\text{model}}=192$维，
+输入Mamba模块。
+Mamba输出经线性层映射为3维速度指令$\mathbf{v}_{\text{raw}}$。
+网络总参数量约3.50M。
 
 \subsection{基线设置：ViT+LSTM}
 
-为验证Mamba时序模块的有效性，设置ViT+LSTM作为对比基线：使用相同的ViT视觉编码器，时序模块替换为3层LSTM（隐状态维度192），参数量约3.52M，与ViT+Mamba相近，训练配置完全对齐。基线的唯一差异在于时序聚合模块，从而使性能差异可严格归因于Mamba vs LSTM的建模能力差异。
+为验证Mamba时序模块的有效性，
+设置ViT+LSTM作为对比基线：使用相同的ViT视觉编码器，
+时序模块替换为3层LSTM（隐状态维度192），
+参数量约3.52M，
+与ViT+Mamba相近，
+训练配置完全对齐。
+基线的唯一差异在于时序聚合模块，
+从而使性能差异可严格归因于Mamba vs LSTM的建模能力差异。
 
 \subsection{设计选择讨论}
 
@@ -168,21 +201,37 @@ ViT输出的512维视觉特征$\mathbf{f}_{\text{vis}}$与5维辅助特征$\math
 
 （1）为什么采用两阶段卷积嵌入而非标准ViT的线性Patch嵌入？
 
-标准ViT\cite{Dosovitskiy2020ViT}对$60 \times 90$图像使用$16 \times 16$ Patch Size产生$\lfloor 60/16\rfloor \times \lfloor 90/16\rfloor = 3 \times 5 = 15$个token，空间分辨率过低。若改用$8 \times 8$ Patch Size则产生$7 \times 11 = 77$个token，注意力复杂度为$O(77^2) \approx 6000$，可接受但不够灵活。
+标准ViT\cite{Dosovitskiy2020ViT}对$60 \times 90$图像使用$16 \times 16$ Patch Size产生$\lfloor 60/16\rfloor \times \lfloor 90/16\rfloor = 3 \times 5 = 15$个token，
+空间分辨率过低。
+若改用$8 \times 8$ Patch Size则产生$7 \times 11 = 77$个token，
+注意力复杂度为$O(77^2) \approx 6000$，
+可接受但不够灵活。
 
-本文采用的两阶段卷积嵌入方案通过Stride 4 + Stride 2的级联下采样，在第一阶段保留$16 \times 24 = 384$个token以捕捉空间细节，在第二阶段压缩至$8 \times 12 = 96$个token以控制注意力计算量。这一设计在空间细节保留与计算效率之间取得了平衡。
+本文采用的两阶段卷积嵌入方案通过Stride 4 + Stride 2的级联下采样，
+在第一阶段保留$16 \times 24 = 384$个token以捕捉空间细节，
+在第二阶段压缩至$8 \times 12 = 96$个token以控制注意力计算量。
+这一设计在空间细节保留与计算效率之间取得了平衡。
 
 （2）为什么是4层Mamba而非2层或6层？
 
-Mamba层数涉及时序建模深度与推理延迟的权衡。如第\ref{sec:ch3_ablation}节消融实验所示，2层Mamba在高速段碰撞率偏高（时序聚合能力不足），6层Mamba的碰撞率改善有限但推理延迟增加约40\%。4层是在安全性与延迟约束下的最优折中。
+Mamba层数涉及时序建模深度与推理延迟的权衡。
+如第\ref{sec:ch3_ablation}节消融实验所示，
+2层Mamba在高速段碰撞率偏高（时序聚合能力不足），
+6层Mamba的碰撞率改善有限但推理延迟增加约40\%。
+4层是在安全性与延迟约束下的最优折中。
 
 （3）参数量控制。
 
-$d_{\text{model}} = 192$、$d_{\text{state}} = 64$的配置使Temporal Mamba模块参数量约为1.2M，与ViT编码器的2.3M合计约3.5M。这一量级在NVIDIA RTX 4060 GPU上可实现毫秒级推理，满足实时控制要求。
+$d_{\text{model}} = 192$、$d_{\text{state}} = 64$的配置使Temporal Mamba模块参数量约为1.2M，
+与ViT编码器的2.3M合计约3.5M。
+这一量级在NVIDIA RTX 4060 GPU上可实现毫秒级推理，
+满足实时控制要求。
 
 \subsection{复杂度与推理延迟分析}
 
-表~\ref{tab:latency_profile}给出各模块的推理耗时分析。测试条件为NVIDIA RTX 4060 GPU、float32精度、输入$60 \times 90$单帧深度图，取1000次推理的中位数。
+表~\ref{tab:latency_profile}给出各模块的推理耗时分析。
+测试条件为NVIDIA RTX 4060 GPU、float32精度、输入$60 \times 90$单帧深度图，
+取1000次推理的中位数。
 
 \begin{table}[htbp]
 \centering
@@ -204,18 +253,31 @@ GPU-CPU 数据传输 & $\sim$0.5 & $\sim$7 & -- \\
 \end{tabular}
 \end{table}
 
-可以看到：（1）ViT编码器是计算瓶颈（占58\%），这为第5章将ViT替换为MambaVision提供了直接动机；（2）Temporal Mamba的单步流式推理仅需$\sim\SI{1.8}{ms}$，显著低于同参数量LSTM（$\sim\SI{2.5}{ms}$），验证了SSM在推理效率上的优势；（3）RACS的$O(1)$复杂度使其对总延迟几乎无影响（$<\SI{0.1}{ms}$）。
+可以看到：（1）ViT编码器是计算瓶颈（占58\%），
+这为第5章将ViT替换为MambaVision提供了直接动机；
+（2）Temporal Mamba的单步流式推理仅需$\sim\SI{1.8}{ms}$，
+显著低于同参数量LSTM（$\sim\SI{2.5}{ms}$），
+验证了SSM在推理效率上的优势；
+（3）RACS的$O(1)$复杂度使其对总延迟几乎无影响（$<\SI{0.1}{ms}$）。
 
-$\sim\SI{6}{ms}$的总推理延迟意味着策略可支持$>\SI{160}{Hz}$的控制频率，远高于本文$\SI{30}{Hz}$--$\SI{60}{Hz}$的实际运行频率，留有充足的余量。
+$\sim\SI{6}{ms}$的总推理延迟意味着策略可支持$>\SI{160}{Hz}$的控制频率，
+远高于本文$\SI{30}{Hz}$--$\SI{60}{Hz}$的实际运行频率，
+留有充足的余量。
 
 
 \section{DAgger闭环数据增强}
 
 \subsection{动机与方法}
 
-在BC基线上引入DAgger\cite{Ross2011DAgger}闭环数据增强以缓解分布偏移。以BC训练的checkpoint（R0）为初始策略，执行3轮DAgger迭代（R1--R3）。每轮流程为：（1）以混合策略（$\beta$控制专家/学生比例）在Flightmare中采集闭环数据；（2）由特权信息专家为所有状态标注速度指令（无论该状态由专家还是学生执行产生）；（3）合并新数据到训练集中从头重新训练（而非增量微调）。
+在BC基线上引入DAgger\cite{Ross2011DAgger}闭环数据增强以缓解分布偏移。
+以BC训练的checkpoint（R0）为初始策略，
+执行3轮DAgger迭代（R1--R3）。
+每轮流程为：（1）以混合策略（$\beta$控制专家/学生比例）在Flightmare中采集闭环数据；
+（2）由特权信息专家为所有状态标注速度指令（无论该状态由专家还是学生执行产生）；
+（3）合并新数据到训练集中从头重新训练（而非增量微调）。
 
-选择全量重训而非增量微调的原因在于：增量微调可能导致策略遗忘早期数据中的良好行为模式（灾难性遗忘），而全量重训确保策略在包含更广泛状态覆盖的完整数据集上达到全局最优。
+选择全量重训而非增量微调的原因在于：增量微调可能导致策略遗忘早期数据中的良好行为模式（灾难性遗忘），
+而全量重训确保策略在包含更广泛状态覆盖的完整数据集上达到全局最优。
 
 \subsection{执行配置}
 
@@ -243,7 +305,9 @@ R3 & 0.0 & 18 & 639 & 30 & 5e-5 & 5 & R2 \\
 
 \subsection{数据集构成与速度档分布}
 
-DAgger每轮新增的18条轨迹在速度档上的分布如表~\ref{tab:dagger_speed_dist}所示。策略性地偏重高速段采集（$\SI{9}{m/s}$和$\SI{12}{m/s}$各6条），因为BC基线在这些速度下碰撞最为频繁——这些状态正是BC训练数据中覆盖最不充分的区域。
+DAgger每轮新增的18条轨迹在速度档上的分布如表~\ref{tab:dagger_speed_dist}所示。
+策略性地偏重高速段采集（$\SI{9}{m/s}$和$\SI{12}{m/s}$各6条），
+因为BC基线在这些速度下碰撞最为频繁——这些状态正是BC训练数据中覆盖最不充分的区域。
 
 \begin{table}[htbp]
 \centering
@@ -266,26 +330,50 @@ R3 新增 & 2 & 2 & 2 & 6 & 6 & 18 \\
 \end{tabular}
 \end{table}
 
-从数据比例看，DAgger仅在BC数据基础上新增了约9.2\%的轨迹数据（$54/585$），但这些数据来自学生策略诱导的分布而非专家分布，精准覆盖了BC最脆弱的高速区域，因此能以极小的数据代价带来显著的安全性提升。
+从数据比例看，
+DAgger仅在BC数据基础上新增了约9.2\%的轨迹数据（$54/585$），
+但这些数据来自学生策略诱导的分布而非专家分布，
+精准覆盖了BC最脆弱的高速区域，
+因此能以极小的数据代价带来显著的安全性提升。
 
 \subsection{轮次收敛的机制解释}
 
 DAgger轮次推进带来的核心变化体现在两个维度：碰撞指标的均值下降与标准差收敛。
 
-均值下降的机制直观：每轮DAgger新增的数据来自当前策略的实际闭环执行，这些数据覆盖了策略当前最容易犯错的状态区域——特别是BC训练数据中缺失的高速偏离状态。通过为这些状态补充正确的专家标注，策略在下一轮训练中能够学习到在这些"难例"上的正确行为。
+均值下降的机制直观：每轮DAgger新增的数据来自当前策略的实际闭环执行，
+这些数据覆盖了策略当前最容易犯错的状态区域——特别是BC训练数据中缺失的高速偏离状态。
+通过为这些状态补充正确的专家标注，
+策略在下一轮训练中能够学习到在这些"难例"上的正确行为。
 
-标准差收敛的机制更为微妙：随着DAgger轮次推进，训练数据的状态覆盖范围逐步逼近策略的真实部署分布$d_{\pi_\theta}$。当训练分布与部署分布的重叠度增加时，策略在不同初始条件下的行为一致性提高——表现为跨试验的碰撞指标标准差减小。这意味着策略从"有时好有时差"演变为"稳定可预测"，对于工程部署而言，行为一致性的提升与安全性均值的改善同等重要。
+标准差收敛的机制更为微妙：随着DAgger轮次推进，
+训练数据的状态覆盖范围逐步逼近策略的真实部署分布$d_{\pi_\theta}$。
+当训练分布与部署分布的重叠度增加时，
+策略在不同初始条件下的行为一致性提高——表现为跨试验的碰撞指标标准差减小。
+这意味着策略从"有时好有时差"演变为"稳定可预测"，
+对于工程部署而言，
+行为一致性的提升与安全性均值的改善同等重要。
 
-$\beta$的衰减策略（$0.7 \rightarrow 0.3 \rightarrow 0.0$）进一步加速了收敛：早期$\beta=0.7$意味着70\%的时间由专家执行（保证安全采集），但仍有30\%的学生执行引入了分布偏移区域的数据；到R3时$\beta=0.0$完全由学生策略采集，最大化了对部署分布的覆盖。
+$\beta$的衰减策略（$0.7 \rightarrow 0.3 \rightarrow 0.0$）进一步加速了收敛：早期$\beta=0.7$意味着70\%的时间由专家执行（保证安全采集），
+但仍有30\%的学生执行引入了分布偏移区域的数据；
+到R3时$\beta=0.0$完全由学生策略采集，
+最大化了对部署分布的覆盖。
 
 
 \section{RACS动态速率限制控制平滑器}
 
 \subsection{问题动机}
 
-ViT+Mamba通过更强的时序响应降低了碰撞率，但更敏捷的控制可能伴随更高的Command Jerk（指令抖动）。对于真实四旋翼系统而言，过高的指令抖动不仅影响飞行舒适性，更可能激励机体结构振动、加速电机磨损、增加功耗，甚至在极端情况下导致姿态控制器不稳定\cite{Mellinger2011MinSnapTrajectory}。
+ViT+Mamba通过更强的时序响应降低了碰撞率，
+但更敏捷的控制可能伴随更高的Command Jerk（指令抖动）。
+对于真实四旋翼系统而言，
+过高的指令抖动不仅影响飞行舒适性，
+更可能激励机体结构振动、加速电机磨损、增加功耗，
+甚至在极端情况下导致姿态控制器不稳定\cite{Mellinger2011MinSnapTrajectory}。
 
-RACS（Rate-Adaptive Control Smoother）在部署侧对策略输出施加动态速率限制，以最小工程复杂度换取显著的平滑性改善。其核心思想是：保持策略网络的训练不变，仅在推理时对输出施加后处理约束。
+RACS（Rate-Adaptive Control Smoother）在部署侧对策略输出施加动态速率限制，
+以最小工程复杂度换取显著的平滑性改善。
+其核心思想是：保持策略网络的训练不变，
+仅在推理时对输出施加后处理约束。
 
 \subsection{约束化定义与投影求解}
 
@@ -294,19 +382,31 @@ RACS的核心约束为带球约束的最近点投影问题：
   \min_{\mathbf{v}_{\text{cmd}}} \|\mathbf{v}_{\text{cmd}} - \mathbf{v}_{\text{raw}}\|_2^2 \quad \text{s.t.} \quad \|\mathbf{v}_{\text{cmd}} - \mathbf{v}_{\text{prev}}\|_2 \leq \delta_t
   \label{eq:racs_opt}
 \end{equation}
-其中$\mathbf{v}_{\text{raw}} \in \mathbb{R}^3$为网络原始输出，$\mathbf{v}_{\text{prev}} \in \mathbb{R}^3$为上一步发布的指令，$\delta_t > 0$为动态速率上界。
+其中$\mathbf{v}_{\text{raw}} \in \mathbb{R}^3$为网络原始输出，
+$\mathbf{v}_{\text{prev}} \in \mathbb{R}^3$为上一步发布的指令，
+$\delta_t > 0$为动态速率上界。
 
-该问题是标准的欧氏投影到$L_2$球的凸优化问题，具有唯一闭式解。设$\Delta \mathbf{v} = \mathbf{v}_{\text{raw}} - \mathbf{v}_{\text{prev}}$，则：
+该问题是标准的欧氏投影到$L_2$球的凸优化问题，
+具有唯一闭式解。
+设$\Delta \mathbf{v} = \mathbf{v}_{\text{raw}} - \mathbf{v}_{\text{prev}}$，
+则：
 
-情形1：若$\|\Delta \mathbf{v}\|_2 \leq \delta_t$，则$\mathbf{v}_{\text{raw}}$已在约束集合内，直接输出$\mathbf{v}_{\text{cmd}} = \mathbf{v}_{\text{raw}}$。
+情形1：若$\|\Delta \mathbf{v}\|_2 \leq \delta_t$，
+则$\mathbf{v}_{\text{raw}}$已在约束集合内，
+直接输出$\mathbf{v}_{\text{cmd}} = \mathbf{v}_{\text{raw}}$。
 
-情形2：若$\|\Delta \mathbf{v}\|_2 > \delta_t$，需将$\mathbf{v}_{\text{raw}}$投影到以$\mathbf{v}_{\text{prev}}$为球心、$\delta_t$为半径的球面上。由KKT条件可知最优解在球面上沿$\Delta \mathbf{v}$方向取得：
+情形2：若$\|\Delta \mathbf{v}\|_2 > \delta_t$，
+需将$\mathbf{v}_{\text{raw}}$投影到以$\mathbf{v}_{\text{prev}}$为球心、$\delta_t$为半径的球面上。
+由KKT条件可知最优解在球面上沿$\Delta \mathbf{v}$方向取得：
 \begin{equation}
   \mathbf{v}_{\text{cmd}} = \mathbf{v}_{\text{prev}} + \delta_t \cdot \frac{\Delta \mathbf{v}}{\|\Delta \mathbf{v}\|_2}
   \label{eq:racs_proj}
 \end{equation}
 
-几何上，这等价于保持速度变化方向不变，仅将变化幅度截断至$\delta_t$。如图~\ref{fig:racs_projection}所示。
+几何上，
+这等价于保持速度变化方向不变，
+仅将变化幅度截断至$\delta_t$。
+如图~\ref{fig:racs_projection}所示。
 
 \begin{figure}[htbp]
 \centering
@@ -337,7 +437,9 @@ RACS的核心约束为带球约束的最近点投影问题：
 
 \subsection{$\delta_t$动态调度函数}
 
-$\delta_t$根据当前最小深度观测值$d_{\min,t}$动态调整：障碍接近时放宽$\delta_t$以保留敏捷性（允许更大的速度变化以紧急避障），远离时收紧$\delta_t$以增强平滑。调度函数为分段线性：
+$\delta_t$根据当前最小深度观测值$d_{\min,t}$动态调整：障碍接近时放宽$\delta_t$以保留敏捷性（允许更大的速度变化以紧急避障），
+远离时收紧$\delta_t$以增强平滑。
+调度函数为分段线性：
 \begin{equation}
   \delta_t(d_{\min,t}) = \begin{cases}
     \delta_{\max} & \text{若 } d_{\min,t} \leq d_0 \\
@@ -397,26 +499,46 @@ RACS超参数见表~\ref{tab:racs_params}。
 
 RACS的$\delta_t$参数存在两个极端边界：
 
-$\delta_t$过小（$\delta_{\min}$设置过于激进）：策略输出的速度变化被过度限制，无人机无法及时执行大幅避障机动。表现为：策略"看到了"障碍并生成了正确的避让指令$\mathbf{v}_{\text{raw}}$，但RACS将其截断为一个过小的变化量，导致实际轨迹仍与障碍相交。这种情况下，RACS反而增加了碰撞率。
+$\delta_t$过小（$\delta_{\min}$设置过于激进）：策略输出的速度变化被过度限制，
+无人机无法及时执行大幅避障机动。
+表现为：策略"看到了"障碍并生成了正确的避让指令$\mathbf{v}_{\text{raw}}$，
+但RACS将其截断为一个过小的变化量，
+导致实际轨迹仍与障碍相交。
+这种情况下，
+RACS反而增加了碰撞率。
 
-$\delta_t$过大（$\delta_{\max}$设置过于宽松）：RACS几乎不起作用（$\|\Delta \mathbf{v}\|_2 \leq \delta_t$对大多数帧成立），平滑效果消失，退化为无RACS的情况。
+$\delta_t$过大（$\delta_{\max}$设置过于宽松）：RACS几乎不起作用（$\|\Delta \mathbf{v}\|_2 \leq \delta_t$对大多数帧成立），
+平滑效果消失，
+退化为无RACS的情况。
 
-因此，$\delta_t$的调度需要在"保留敏捷性"与"增强平滑性"之间取得平衡。本文的动态调度策略通过深度信息$d_{\min,t}$自适应调节：障碍近时$\delta_t$大（优先安全），障碍远时$\delta_t$小（优先平滑），这一启发式规则在实验中证明是有效的（第\ref{sec:ch3_racs_exp}节）。
+因此，
+$\delta_t$的调度需要在"保留敏捷性"与"增强平滑性"之间取得平衡。
+本文的动态调度策略通过深度信息$d_{\min,t}$自适应调节：障碍近时$\delta_t$大（优先安全），
+障碍远时$\delta_t$小（优先平滑），
+这一启发式规则在实验中证明是有效的（第\ref{sec:ch3_racs_exp}节）。
 
 \subsection{与训练期Jerk Loss的关系}
 
-本文同时使用了训练期的Jerk Loss（$\mathcal{L}_{\text{jerk}}$）和部署期的RACS，两者并不冲突：
+本文同时使用了训练期的Jerk Loss（$\mathcal{L}_{\text{jerk}}$）和部署期的RACS，
+两者并不冲突：
 
 \begin{itemize}
-  \item Jerk Loss是"软约束"：通过梯度优化鼓励策略生成平滑的输出序列，但无法保证每一步的变化幅度严格低于某个阈值——毕竟BC监督损失可能与Jerk Loss存在冲突（某些状态下紧急避障需要大幅变化）；
-  \item RACS是"硬约束"：无论策略输出什么，RACS保证最终执行的指令变化幅度不超过$\delta_t$。
-\end{itemize}
+  \item Jerk Loss是"软约束"：通过梯度优化鼓励策略生成平滑的输出序列，
+    但无法保证每一步的变化幅度严格低于某个阈值——毕竟BC监督损失可能与Jerk Loss存在冲突（某些状态下紧急避障需要大幅变化）；
+     \item RACS是"硬约束"：无论策略输出什么，
+    RACS保证最终执行的指令变化幅度不超过$\delta_t$。
+     \end{itemize}
 
-类比于经典控制理论中的"期望+饱和"架构：Jerk Loss塑造了策略的"期望行为分布"（使大部分输出天然平滑），RACS则在分布尾部施加"饱和截断"（处理偶发的极端抖动）。实验结果表明，两者联合使用时Jerk指标优于任一单独使用的情况。
+类比于经典控制理论中的"期望+饱和"架构：Jerk Loss塑造了策略的"期望行为分布"（使大部分输出天然平滑），
+RACS则在分布尾部施加"饱和截断"（处理偶发的极端抖动）。
+实验结果表明，
+两者联合使用时Jerk指标优于任一单独使用的情况。
 
 \subsection{算法复杂度与RACS伪代码}
 
-RACS的核心运算仅包含一次$\mathbb{R}^3$向量减法、一次L2范数计算和一次条件截断，复杂度为$O(1)$（与模型大小、序列长度无关）。算法~\ref{alg:racs}给出完整伪代码。
+RACS的核心运算仅包含一次$\mathbb{R}^3$向量减法、一次L2范数计算和一次条件截断，
+复杂度为$O(1)$（与模型大小、序列长度无关）。
+算法~\ref{alg:racs}给出完整伪代码。
 
 \begin{algorithm}[htbp]
 \caption{RACS动态速率限制控制平滑器}
@@ -436,7 +558,9 @@ RACS的核心运算仅包含一次$\mathbb{R}^3$向量减法、一次L2范数计
 \end{algorithmic}
 \end{algorithm}
 
-实测中，RACS单步耗时$<\SI{0.1}{ms}$（含$d_{\min}$计算），对控制频率无可观测影响。
+实测中，
+RACS单步耗时$<\SI{0.1}{ms}$（含$d_{\min}$计算），
+对控制频率无可观测影响。
 
 
 \section{训练细节}
@@ -484,13 +608,19 @@ RACS的核心运算仅包含一次$\mathbb{R}^3$向量减法、一次L2范数计
   \mathcal{L}_{\text{jerk}} = \frac{1}{T'-1} \sum_{t=t_{\text{burn}}+2}^{T} \|\mathbf{v}_t^{\text{pred}} - \mathbf{v}_{t-1}^{\text{pred}}\|_2^2
 \end{equation}
 
-Jerk Loss采用三阶段课程学习的设计动机为：第一阶段（0--30 epochs）仅优化BC损失，让策略首先学会基本的避障行为；第二阶段（30--70 epochs）逐步引入Jerk Loss权重，避免突变导致训练不稳定；第三阶段（70--100 epochs）保持恒定权重进行精细调整。这一设计确保了BC监督信号（安全性）与Jerk惩罚（平滑性）之间的优先级：安全性始终是第一优化目标。
+Jerk Loss采用三阶段课程学习的设计动机为：第一阶段（0--30 epochs）仅优化BC损失，
+让策略首先学会基本的避障行为；
+第二阶段（30--70 epochs）逐步引入Jerk Loss权重，
+避免突变导致训练不稳定；
+第三阶段（70--100 epochs）保持恒定权重进行精细调整。
+这一设计确保了BC监督信号（安全性）与Jerk惩罚（平滑性）之间的优先级：安全性始终是第一优化目标。
 
 
-\section{案例研究与实验}
-\label{sec:ch3_exp}
+\section{案例研究与实验} \label{sec:ch3_exp}
 
-本节给出创新点一的完整实验验证。评测协议见第2章表~\ref{tab:eval_protocol_unified}与表~\ref{tab:metric_def}，本节仅补充本章特有的实验设置。
+本节给出创新点一的完整实验验证。
+评测协议见第2章表~\ref{tab:eval_protocol_unified}与表~\ref{tab:metric_def}，
+本节仅补充本章特有的实验设置。
 
 \subsection{主结果：ViT+Mamba与ViT+LSTM的系统对比}
 
@@ -505,11 +635,23 @@ Jerk Loss采用三阶段课程学习的设计动机为：第一阶段（0--30 ep
 
 主要发现如下：
 
-（1）ViT+Mamba在高速段显著优于ViT+LSTM。在Spheres环境中，ViT+Mamba在$\SI{9}{m/s}$至$\SI{12}{m/s}$的高速段，碰撞率与碰撞事件次数均明显低于ViT+LSTM基线。这一优势的根源在于Mamba的选择性机制（第2章2.4.4节）使模型能够根据当前观测动态调整时序聚合行为：当障碍接近时更关注最新观测（通过增大$\Delta_t$加速遗忘），当路径平坦时更充分利用历史信息进行平滑预测。
+（1）ViT+Mamba在高速段显著优于ViT+LSTM。
+在Spheres环境中，
+ViT+Mamba在$\SI{9}{m/s}$至$\SI{12}{m/s}$的高速段，
+碰撞率与碰撞事件次数均明显低于ViT+LSTM基线。
+这一优势的根源在于Mamba的选择性机制（第2章2.4.4节）使模型能够根据当前观测动态调整时序聚合行为：当障碍接近时更关注最新观测（通过增大$\Delta_t$加速遗忘），
+当路径平坦时更充分利用历史信息进行平滑预测。
 
-（2）分布外泛化优势同样显著。在Trees环境（零样本OOD测试）中，ViT+Mamba同样保持安全性优势，表明改进具备跨分布泛化能力。这一结论与第1章命题1的预测一致。
+（2）分布外泛化优势同样显著。
+在Trees环境（零样本OOD测试）中，
+ViT+Mamba同样保持安全性优势，
+表明改进具备跨分布泛化能力。
+这一结论与第1章命题1的预测一致。
 
-（3）推理延迟相当。两种方法的单步推理延迟均在$\SI{6}{ms}$左右（表~\ref{tab:latency_profile}），Mamba模块略快于LSTM模块，但总延迟差异不大（被ViT编码器主导）。
+（3）推理延迟相当。
+两种方法的单步推理延迟均在$\SI{6}{ms}$左右（表~\ref{tab:latency_profile}），
+Mamba模块略快于LSTM模块，
+但总延迟差异不大（被ViT编码器主导）。
 
 表~\ref{tab:main_spheres_ch3}与表~\ref{tab:main_trees_ch3}分别给出Spheres（ID）与Trees（OOD）环境下的碰撞率与碰撞事件次数数值结果。
 \begin{table}[htbp]
@@ -564,7 +706,11 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
 
 \subsection{推理延迟与系统时序分析}
 
-图~\ref{fig:dt_dist_ch3}给出控制循环周期$\Delta t$的分布统计，确认两种方法的系统时序一致。这一验证的必要性在于：若不同方法的控制频率存在系统性差异，则碰撞率的对比将包含"控制频率"这一混淆因素。$\Delta t$分布的一致性确认了两种方法在"单位时间内执行的控制步数"维度上是可比的。
+图~\ref{fig:dt_dist_ch3}给出控制循环周期$\Delta t$的分布统计，
+确认两种方法的系统时序一致。
+这一验证的必要性在于：若不同方法的控制频率存在系统性差异，
+则碰撞率的对比将包含"控制频率"这一混淆因素。
+$\Delta t$分布的一致性确认了两种方法在"单位时间内执行的控制步数"维度上是可比的。
 
 \begin{figure}[htbp]
 \centering
@@ -593,7 +739,9 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
 \label{fig:dagger_d2_ch3}
 \end{figure}
 
-碰撞事件次数从R0（BC）到R3持续下降；跨试验标准差随轮次收敛（图~\ref{fig:dagger_d3_ch3}），策略行为从"有波动"过渡为"稳定可预测"——这正是3.4.4节分析的"闭环覆盖提升$\rightarrow$行为一致性增强"机制的实验证据。
+碰撞事件次数从R0（BC）到R3持续下降；
+跨试验标准差随轮次收敛（图~\ref{fig:dagger_d3_ch3}），
+策略行为从"有波动"过渡为"稳定可预测"——这正是3.4.4节分析的"闭环覆盖提升$\rightarrow$行为一致性增强"机制的实验证据。
 
 \begin{figure}[htbp]
 \centering
@@ -602,7 +750,11 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
 \label{fig:dagger_d3_ch3}
 \end{figure}
 
-图~\ref{fig:dagger_d5_ch3}给出BC与DAgger-R3在Spheres与Trees环境下的碰撞率对比。值得注意的是，DAgger的训练数据仅在Spheres环境中采集，但Trees环境中的碰撞率同样得到改善——这表明DAgger学到的不仅是Spheres环境的特定策略，而是更鲁棒的闭环行为模式。
+图~\ref{fig:dagger_d5_ch3}给出BC与DAgger-R3在Spheres与Trees环境下的碰撞率对比。
+值得注意的是，
+DAgger的训练数据仅在Spheres环境中采集，
+但Trees环境中的碰撞率同样得到改善——这表明DAgger学到的不仅是Spheres环境的特定策略，
+而是更鲁棒的闭环行为模式。
 
 \begin{figure}[htbp]
 \centering
@@ -611,7 +763,10 @@ ViT+Mamba & 0.0 $\pm$ 0.00 & 0.6 $\pm$ 0.66 & 2.3 $\pm$ 1.55 & 2.9 $\pm$ 0.94 & 
 \label{fig:dagger_d5_ch3}
 \end{figure}
 
-分布可视化进一步确认了碰撞事件次数逐步集中于低值区域（图~\ref{fig:dagger_d6_ch3}），碰撞持续时间的条件分布在R2达到最紧凑（图~\ref{fig:dagger_d7_ch3}），表明DAgger不仅减少了碰撞发生的频次，还缩短了每次碰撞的持续时间——策略学会了更快地从碰撞状态中恢复。
+分布可视化进一步确认了碰撞事件次数逐步集中于低值区域（图~\ref{fig:dagger_d6_ch3}），
+碰撞持续时间的条件分布在R2达到最紧凑（图~\ref{fig:dagger_d7_ch3}），
+表明DAgger不仅减少了碰撞发生的频次，
+还缩短了每次碰撞的持续时间——策略学会了更快地从碰撞状态中恢复。
 
 Trees（OOD）环境下的多维指标对比如图~\ref{fig:dagger_d4_ch3}所示。
 \begin{figure}[H]
@@ -639,8 +794,7 @@ Trees（OOD）环境下的多维指标对比如图~\ref{fig:dagger_d4_ch3}所示
 
 \FloatBarrier
 
-\subsection{RACS：安全--平滑权衡}
-\label{sec:ch3_racs_exp}
+\subsection{RACS：安全--平滑权衡} \label{sec:ch3_racs_exp}
 
 图~\ref{fig:racs_results_ch3}给出RACS在Spheres环境下的验证结果。
 
@@ -649,10 +803,13 @@ Trees（OOD）环境下的多维指标对比如图~\ref{fig:dagger_d4_ch3}所示
 实验表明以下关键结论：
 
 \begin{enumerate}
-  \item Jerk显著降低：RACS在多数速度档位显著降低Command Jerk，尤其在高速段（$\geq \SI{9}{m/s}$）降幅最为明显；
-  \item 安全性基本保持：碰撞率在RACS开启前后变化不大，在部分速度档位甚至有微小改善——这可能归因于平滑后的指令减少了因指令抖动导致的"误触碰"；
-  \item 计算开销可忽略：RACS单步耗时$<\SI{0.1}{ms}$（表~\ref{tab:latency_profile}），对控制频率无可观测影响。
-\end{enumerate}
+  \item Jerk显著降低：RACS在多数速度档位显著降低Command Jerk，
+    尤其在高速段（$\geq \SI{9}{m/s}$）降幅最为明显；
+     \item 安全性基本保持：碰撞率在RACS开启前后变化不大，
+    在部分速度档位甚至有微小改善——这可能归因于平滑后的指令减少了因指令抖动导致的"误触碰"；
+     \item 计算开销可忽略：RACS单步耗时$<\SI{0.1}{ms}$（表~\ref{tab:latency_profile}），
+    对控制频率无可观测影响。
+     \end{enumerate}
 
 \begin{figure}[H]
 \centering
@@ -668,16 +825,20 @@ Trees（OOD）环境下的多维指标对比如图~\ref{fig:dagger_d4_ch3}所示
 \label{fig:jerk_motivation_ch3}
 \end{figure}
 
-\subsection{消融实验}
-\label{sec:ch3_ablation}
+\subsection{消融实验} \label{sec:ch3_ablation}
 
-为验证关键设计选择的合理性，本节进行多维度消融实验。所有消融实验在Spheres环境的$\SI{9}{m/s}$速度档进行，保持其他配置与主实验一致。
+为验证关键设计选择的合理性，
+本节进行多维度消融实验。
+所有消融实验在Spheres环境的$\SI{9}{m/s}$速度档进行，
+保持其他配置与主实验一致。
 
 \subsubsection{时序模块深度消融}
 
 表~\ref{tab:ablation_mamba_layers}给出Mamba层数消融结果。
 
-预期趋势为：2层Mamba在高速段碰撞率偏高（时序聚合深度不足），6层Mamba碰撞率与4层接近但推理延迟增加约20\%，4层是安全性与效率的最优折中。
+预期趋势为：2层Mamba在高速段碰撞率偏高（时序聚合深度不足），
+6层Mamba碰撞率与4层接近但推理延迟增加约20\%，
+4层是安全性与效率的最优折中。
 
 \begin{table}[H]
 \centering
@@ -722,7 +883,14 @@ Trees（OOD）环境下的多维指标对比如图~\ref{fig:dagger_d4_ch3}所示
 \end{tablenotes}
 \end{table}
 
-burn-in=0时，训练损失包含隐状态尚未稳定时的输出，预期导致梯度信号质量下降，碰撞率偏高。burn-in=40时，有效训练序列长度缩短为110步（$150-40$），可能略微损失长程时序学习能力。burn-in=20在训练稳定性与有效序列长度之间取得平衡。
+burn-in=0时，
+训练损失包含隐状态尚未稳定时的输出，
+预期导致梯度信号质量下降，
+碰撞率偏高。
+burn-in=40时，
+有效训练序列长度缩短为110步（$150-40$），
+可能略微损失长程时序学习能力。
+burn-in=20在训练稳定性与有效序列长度之间取得平衡。
 
 \subsubsection{Jerk Loss消融}
 
@@ -747,32 +915,65 @@ burn-in=0时，训练损失包含隐状态尚未稳定时的输出，预期导�
 \end{tablenotes}
 \end{table}
 
-预期结论：无Jerk Loss时Jerk最高但碰撞率可能最低（策略完全追求安全性）；固定$\lambda$方案可能因训练早期平滑约束过强而干扰BC学习；课程$\lambda$在安全性与平滑性之间取得最优权衡。
+预期结论：无Jerk Loss时Jerk最高但碰撞率可能最低（策略完全追求安全性）；
+固定$\lambda$方案可能因训练早期平滑约束过强而干扰BC学习；
+课程$\lambda$在安全性与平滑性之间取得最优权衡。
 
 \subsection{失败案例分析}
 
-在$\SI{12}{m/s}$极限速度下，我们系统梳理了四类典型失败模式：
+在$\SI{12}{m/s}$极限速度下，
+我们系统梳理了四类典型失败模式：
 
-（1）窄通道场景。多障碍物在飞行路径上形成狭窄通道（通过宽度$<\SI{1.5}{m}$），高速下反应时间不足导致无人机无法完成大幅侧移避障。这类场景的根因是低分辨率深度图像对远距窄通道的识别能力有限——在$60 \times 90$分辨率下，$\SI{5}{m}$外的$\SI{1.5}{m}$通道仅对应约3个像素的宽度。
+（1）窄通道场景。
+多障碍物在飞行路径上形成狭窄通道（通过宽度$<\SI{1.5}{m}$），
+高速下反应时间不足导致无人机无法完成大幅侧移避障。
+这类场景的根因是低分辨率深度图像对远距窄通道的识别能力有限——在$60 \times 90$分辨率下，
+$\SI{5}{m}$外的$\SI{1.5}{m}$通道仅对应约3个像素的宽度。
 
-（2）连续障碍群。避开第一个障碍后直接面对第二个，两次避障之间的恢复时间不足（$<\SI{200}{ms}$）。策略在完成第一次避障的急转后需要迅速恢复航向并准备第二次机动，这对时序模型的快速状态切换能力提出了极高要求。
+（2）连续障碍群。
+避开第一个障碍后直接面对第二个，
+两次避障之间的恢复时间不足（$<\SI{200}{ms}$）。
+策略在完成第一次避障的急转后需要迅速恢复航向并准备第二次机动，
+这对时序模型的快速状态切换能力提出了极高要求。
 
-（3）OOD树冠层误判。Trees环境中树状障碍的冠层在深度图中呈现为面积较大但边界模糊的区域，与Spheres环境中边界清晰的球体障碍有显著的视觉差异。策略对冠层距离的估计偏差导致部分碰撞。
+（3）OOD树冠层误判。
+Trees环境中树状障碍的冠层在深度图中呈现为面积较大但边界模糊的区域，
+与Spheres环境中边界清晰的球体障碍有显著的视觉差异。
+策略对冠层距离的估计偏差导致部分碰撞。
 
-（4）细长障碍遗漏。树干在$60 \times 90$分辨率下仅占1--2个像素列，高速运动时容易被深度噪声淹没或在帧间跳跃。这类失败指向了一个根本性限制：输入分辨率对细小障碍的感知瓶颈。
+（4）细长障碍遗漏。
+树干在$60 \times 90$分辨率下仅占1--2个像素列，
+高速运动时容易被深度噪声淹没或在帧间跳跃。
+这类失败指向了一个根本性限制：输入分辨率对细小障碍的感知瓶颈。
 
-上述失败模式提示了两个改进方向：（1）更高的输入分辨率或多尺度视觉编码（但需权衡推理延迟）；（2）更强的时序聚合能力以通过多帧累积检测细长障碍。
+上述失败模式提示了两个改进方向：（1）更高的输入分辨率或多尺度视觉编码（但需权衡推理延迟）；
+（2）更强的时序聚合能力以通过多帧累积检测细长障碍。
 
 
 \section{本章小结}
 
-本章提出了面向高速端到端避障的ViT+Mamba策略网络，构建了BC+DAgger+RACS的完整训练--部署系统，并通过系统实验验证了以下结论：
+本章提出了面向高速端到端避障的ViT+Mamba策略网络，
+构建了BC+DAgger+RACS的完整训练--部署系统，
+并通过系统实验验证了以下结论：
 
 \begin{enumerate}
-  \item ViT+Mamba在高速段（$\geq \SI{9}{m/s}$）碰撞率与碰撞事件次数显著优于ViT+LSTM基线，分布外泛化优势同样显著。推理延迟分析表明ViT编码器是计算瓶颈（占总延迟58\%），为第5章的视觉骨干替换提供了直接动机；
-  \item DAgger闭环数据增强在BC基线之上进一步降低碰撞频次，跨试验标准差显著收敛——策略从"有时好有时差"演变为"稳定可预测"，工程部署稳定性大幅提升。仅9.2\%的增量数据即带来显著收益，数据效率极高；
-  \item RACS以零训练代价、$O(1)$计算复杂度实现Command Jerk的显著降低，与训练期Jerk Loss形成"软约束+硬截断"的互补机制，安全性损失有限；
-  \item 消融实验验证了4层Mamba、20步burn-in与课程Jerk Loss的设计合理性。
-\end{enumerate}
+  \item ViT+Mamba在高速段（$\geq \SI{9}{m/s}$）碰撞率与碰撞事件次数显著优于ViT+LSTM基线，
+    分布外泛化优势同样显著。
+    推理延迟分析表明ViT编码器是计算瓶颈（占总延迟58\%），
+    为第5章的视觉骨干替换提供了直接动机；
+     \item DAgger闭环数据增强在BC基线之上进一步降低碰撞频次，
+    跨试验标准差显著收敛——策略从"有时好有时差"演变为"稳定可预测"，
+    工程部署稳定性大幅提升。
+    仅9.2\%的增量数据即带来显著收益，
+    数据效率极高；
+     \item RACS以零训练代价、$O(1)$计算复杂度实现Command Jerk的显著降低，
+    与训练期Jerk Loss形成"软约束+硬截断"的互补机制，
+    安全性损失有限；
+     \item 消融实验验证了4层Mamba、20步burn-in与课程Jerk Loss的设计合理性。
+     \end{enumerate}
 
-然而，本章所有实验均在"正确的状态管理"（KeepState）条件下进行。如果序列模型的内部状态在部署时被错误管理，上述结论是否仍然成立？这一关键问题将在第4章中系统分析。
+然而，
+本章所有实验均在"正确的状态管理"（KeepState）条件下进行。
+如果序列模型的内部状态在部署时被错误管理，
+上述结论是否仍然成立？
+这一关键问题将在第4章中系统分析。

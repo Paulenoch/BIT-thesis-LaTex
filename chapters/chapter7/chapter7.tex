@@ -1,6 +1,15 @@
 \chapter{平滑性与安全性权衡：部署侧约束模块}
 
-第6章的主结果表明，ViT+Mamba通过更强的时序建模能力在高速段显著降低了碰撞率。然而，更敏捷的时序响应可能伴随更高频率的控制指令变化（Command Jerk），影响执行器寿命、能耗与飞行平滑性。本章针对这一安全性与平滑性之间的内在张力，提出部署侧动态速率限制控制平滑器（Rate-Adaptive Control Smoother, RACS），给出其数学定义与算法实现，讨论其在安全学习方法谱系中的定位，并通过实验验证其效果。
+第6章的主结果表明，
+ViT+Mamba通过更强的时序建模能力在高速段显著降低了碰撞率。
+然而，
+更敏捷的时序响应可能伴随更高频率的控制指令变化（Command Jerk），
+影响执行器寿命、能耗与飞行平滑性。
+本章针对这一安全性与平滑性之间的内在张力，
+提出部署侧动态速率限制控制平滑器（Rate-Adaptive Control Smoother, RACS），
+给出其数学定义与算法实现，
+讨论其在安全学习方法谱系中的定位，
+并通过实验验证其效果。
 
 \section{问题动机：敏捷性与指令抖动的内在张力}
 
@@ -13,19 +22,21 @@
 \label{fig:jerk_motivation}
 \end{figure}
 
-从图中可以观察到：
 \begin{enumerate}
-  \item ViT+Mamba的Command Jerk在中高速段整体高于ViT+LSTM基线，表明更强的时序响应能力确实伴随着更激进的指令变化；
-  \item 这一现象是符合直觉的：更灵敏的策略能够更快速地响应障碍出现，但快速响应本身意味着控制指令在短时间内的剧烈变化。
-\end{enumerate}
+从图中可以观察到： \item ViT+Mamba的Command Jerk在中高速段整体高于ViT+LSTM基线，
+表明更强的时序响应能力确实伴随着更激进的指令变化；
+ \item 这一现象是符合直觉的：更灵敏的策略能够更快速地响应障碍出现，
+但快速响应本身意味着控制指令在短时间内的剧烈变化。
+ \end{enumerate}
 
-敏捷性与平滑性之间的张力是一个内在矛盾：
 \begin{itemize}
-  \item 更激进的避障动作$\rightarrow$更高频率、更大幅度的指令变化$\rightarrow$更高的jerk；
-  \item 更平滑的指令输出$\rightarrow$更低的jerk，但可能延迟避障反应$\rightarrow$更高的碰撞风险。
-\end{itemize}
+敏捷性与平滑性之间的张力是一个内在矛盾： \item 更激进的避障动作$\rightarrow$更高频率、更大幅度的指令变化$\rightarrow$更高的jerk；
+ \item 更平滑的指令输出$\rightarrow$更低的jerk，
+但可能延迟避障反应$\rightarrow$更高的碰撞风险。
+ \end{itemize}
 
-因此，需要一种机制在不过度牺牲安全性的前提下降低jerk代价。
+因此，
+需要一种机制在不过度牺牲安全性的前提下降低jerk代价。
 
 
 \section{RACS算法定义与数学形式}
@@ -37,9 +48,12 @@ RACS（Rate-Adaptive Control Smoother）的核心机制是对相邻两个控制�
   \|\mathbf{v}_{\text{cmd}} - \mathbf{v}_{\text{prev}}\|_2 \leq \delta_t
   \label{eq:racs_constraint}
 \end{equation}
-其中$\mathbf{v}_{\text{cmd}}$为最终发布的速度指令，$\mathbf{v}_{\text{prev}}$为上一控制步发布的速度指令，$\delta_t$为当前时刻的动态速率上界。
+其中$\mathbf{v}_{\text{cmd}}$为最终发布的速度指令，
+$\mathbf{v}_{\text{prev}}$为上一控制步发布的速度指令，
+$\delta_t$为当前时刻的动态速率上界。
 
-当网络原始输出$\mathbf{v}_{\text{raw}}$满足约束时直接发布；否则将$\mathbf{v}_{\text{cmd}}$投影至以$\mathbf{v}_{\text{prev}}$为中心、半径为$\delta_t$的$L_2$球面上：
+当网络原始输出$\mathbf{v}_{\text{raw}}$满足约束时直接发布；
+否则将$\mathbf{v}_{\text{cmd}}$投影至以$\mathbf{v}_{\text{prev}}$为中心、半径为$\delta_t$的$L_2$球面上：
 \begin{equation}
   \mathbf{v}_{\text{cmd}} = \begin{cases}
     \mathbf{v}_{\text{raw}} & \text{若 } \|\mathbf{v}_{\text{raw}} - \mathbf{v}_{\text{prev}}\|_2 \leq \delta_t \\
@@ -50,13 +64,18 @@ RACS（Rate-Adaptive Control Smoother）的核心机制是对相邻两个控制�
 
 \subsection{动态速率上界$\delta_t$}
 
-与传统静态限幅器不同，RACS的速率上界$\delta_t$根据当前环境状态动态调整。当前实现以最小深度观测值$d_{\min,t}$作为环境风险的代理指标：
 \begin{itemize}
-  \item 当障碍接近（$d_{\min,t}$较小）时，\textbf{放宽}$\delta_t$以保留敏捷避障能力；
-  \item 当远离障碍（$d_{\min,t}$较大）时，\textbf{收紧}$\delta_t$以增强平滑、降低抖动与能耗。
-\end{itemize}
+与传统静态限幅器不同，
+RACS的速率上界$\delta_t$根据当前环境状态动态调整。
+当前实现以最小深度观测值$d_{\min,t}$作为环境风险的代理指标： \item 当障碍接近（$d_{\min,t}$较小）时，
+\textbf{放宽}$\delta_t$以保留敏捷避障能力；
+ \item 当远离障碍（$d_{\min,t}$较大）时，
+\textbf{收紧}$\delta_t$以增强平滑、降低抖动与能耗。
+ \end{itemize}
 
-该启发式反映了一个工程直觉：在安全区域无需急剧机动，平滑飞行即可；在危险区域则需要保留策略的全部响应能力。
+该启发式反映了一个工程直觉：在安全区域无需急剧机动，
+平滑飞行即可；
+在危险区域则需要保留策略的全部响应能力。
 
 \subsection{算法伪代码}
 
@@ -81,32 +100,50 @@ RACS（Rate-Adaptive Control Smoother）的核心机制是对相邻两个控制�
 
 \subsection{计算开销}
 
-RACS的计算仅涉及一次向量差、一次范数计算与一次条件分支，计算开销\textbf{低于$\SI{0.1}{ms}$}，相比策略网络的推理时间可忽略不计。该模块完全在部署侧运行，\textbf{不修改策略网络的训练过程}，因此可作为"即插即用"的后处理组件。
+RACS的计算仅涉及一次向量差、一次范数计算与一次条件分支，
+计算开销\textbf{低于$\SI{0.1}{ms}$}，
+相比策略网络的推理时间可忽略不计。
+该模块完全在部署侧运行，
+\textbf{不修改策略网络的训练过程}，
+因此可作为"即插即用"的后处理组件。
 
 
 \section{与安全学习方法的关系}
 
-RACS在安全学习方法的谱系中定位为\textbf{部署侧后处理平滑策略}。如第2章所述，安全方法可分为三大类：
+RACS在安全学习方法的谱系中定位为\textbf{部署侧后处理平滑策略}。
+如第2章所述，
+安全方法可分为三大类：
 
 \begin{enumerate}
-  \item \textbf{训练时约束}（如约束优化、拉格朗日对偶）：在训练过程中引入安全惩罚，使策略在学习阶段就倾向于满足约束。优势是不需要运行时修正；劣势是可能限制策略探索空间。
-  \item \textbf{运行时安全证书与滤波}（如CBF\cite{Cheng2019RLwithCBF}、MPSC\cite{Wabersich2018MPSC}）：在策略输出后进行可行性检查与最小修改，确保执行动作满足安全约束。优势是提供形式化安全保证；劣势是需要精确的安全集估计与动力学模型。
-  \item \textbf{部署侧后处理}（RACS属于此类）：通过简单的指令变化约束改善平滑性。优势是实现简单、调参可控、对策略训练无侵入；劣势是不提供严格可证明的安全性保证。
-\end{enumerate}
+  \item \textbf{训练时约束}（如约束优化、拉格朗日对偶）：在训练过程中引入安全惩罚，
+    使策略在学习阶段就倾向于满足约束。
+    优势是不需要运行时修正；
+    劣势是可能限制策略探索空间。
+     \item \textbf{运行时安全证书与滤波}（如CBF\cite{Cheng2019RLwithCBF}、MPSC\cite{Wabersich2018MPSC}）：在策略输出后进行可行性检查与最小修改，
+    确保执行动作满足安全约束。
+    优势是提供形式化安全保证；
+    劣势是需要精确的安全集估计与动力学模型。
+     \item \textbf{部署侧后处理}（RACS属于此类）：通过简单的指令变化约束改善平滑性。
+    优势是实现简单、调参可控、对策略训练无侵入；
+    劣势是不提供严格可证明的安全性保证。
+     \end{enumerate}
 
-RACS的设计哲学是：在承认不具备形式化安全保证的前提下，以最小的工程复杂度换取显著的平滑性改善。这与安全证书类方法（如CBF/MPSC）形成互补——后续可在RACS框架上叠加更严格的安全约束，形成分层安全架构\cite{Brunke2022SafeLearningReview}。
+RACS的设计哲学是：在承认不具备形式化安全保证的前提下，
+以最小的工程复杂度换取显著的平滑性改善。
+这与安全证书类方法（如CBF/MPSC）形成互补——后续可在RACS框架上叠加更严格的安全约束，
+形成分层安全架构\cite{Brunke2022SafeLearningReview}。
 
 
 \section{实验验证}
 
 \subsection{实验设置}
 
-RACS验证实验对比以下两种配置：
 \begin{enumerate}
-  \item \textbf{Mamba No RACS}：ViT+Mamba策略，不施加任何部署侧约束；
-  \item \textbf{Mamba + RACS（Ours）}：ViT+Mamba策略 + RACS动态速率限制。
-\end{enumerate}
-两种配置使用相同的策略权重，仅是否启用RACS模块不同。
+RACS验证实验对比以下两种配置： \item \textbf{Mamba No RACS}：ViT+Mamba策略，
+不施加任何部署侧约束；
+ \item \textbf{Mamba + RACS（Ours）}：ViT+Mamba策略 + RACS动态速率限制。
+ \end{enumerate} 两种配置使用相同的策略权重，
+仅是否启用RACS模块不同。
 
 \subsection{实验结果}
 
@@ -119,45 +156,66 @@ RACS验证实验对比以下两种配置：
 \label{fig:racs_results}
 \end{figure}
 
-实验表明：
 \begin{enumerate}
-  \item \textbf{Jerk显著降低}：RACS在多数速度档位能够显著降低Command Jerk，相比No RACS配置具有稳定改善；
-  \item \textbf{安全性基本保持}：启用RACS后的碰撞率整体仍保持在较低水平，表明动态速率限制未对安全性造成严重损害；
-  \item \textbf{计算开销可忽略}：RACS的运行时开销低于$\SI{0.1}{ms}$，不影响控制回路的实时性。
-\end{enumerate}
+实验表明： \item \textbf{Jerk显著降低}：RACS在多数速度档位能够显著降低Command Jerk，
+相比No RACS配置具有稳定改善；
+ \item \textbf{安全性基本保持}：启用RACS后的碰撞率整体仍保持在较低水平，
+表明动态速率限制未对安全性造成严重损害；
+ \item \textbf{计算开销可忽略}：RACS的运行时开销低于$\SI{0.1}{ms}$，
+不影响控制回路的实时性。
+ \end{enumerate}
 
 
 \section{约束强度与安全性的权衡分析}
 
-RACS中$\delta_t$的取值范围决定了平滑性与安全性之间的权衡点：
 \begin{itemize}
-  \item \textbf{$\delta_t$过小}：指令变化被严格限制，平滑性极好但避障反应被过度压制，可能导致碰撞率上升；
-  \item \textbf{$\delta_t$过大}：约束形同虚设，退化为无RACS的状态；
-  \item \textbf{适中的$\delta_t$}：在保持足够避障敏捷性的同时有效降低不必要的高频抖动。
-\end{itemize}
+RACS中$\delta_t$的取值范围决定了平滑性与安全性之间的权衡点： \item \textbf{$\delta_t$过小}：指令变化被严格限制，
+平滑性极好但避障反应被过度压制，
+可能导致碰撞率上升；
+ \item \textbf{$\delta_t$过大}：约束形同虚设，
+退化为无RACS的状态；
+ \item \textbf{适中的$\delta_t$}：在保持足够避障敏捷性的同时有效降低不必要的高频抖动。
+ \end{itemize}
 
-当前实现通过基于最小深度$d_{\min,t}$的启发式规则动态调整$\delta_t$，在实验中取得了良好的jerk-safety权衡。更精细的$\delta_t$调度策略（如基于速度、加速度或碰撞概率的多因素函数）是可能的改进方向。
+当前实现通过基于最小深度$d_{\min,t}$的启发式规则动态调整$\delta_t$，
+在实验中取得了良好的jerk-safety权衡。
+更精细的$\delta_t$调度策略（如基于速度、加速度或碰撞概率的多因素函数）是可能的改进方向。
 
-需要承认的是：RACS作为部署侧后处理模块，在极端场景下（如$\delta_t$设置过小且障碍突然出现）可能限制策略的紧急避障能力。因此，在实际部署中需要谨慎调参，确保$\delta_t$的下界不会过度压制安全关键的避障动作。
+需要承认的是：RACS作为部署侧后处理模块，
+在极端场景下（如$\delta_t$设置过小且障碍突然出现）可能限制策略的紧急避障能力。
+因此，
+在实际部署中需要谨慎调参，
+确保$\delta_t$的下界不会过度压制安全关键的避障动作。
 
 
 \section{向风险自适应版本扩展的技术路径}
 
-当前RACS版本以最小深度$d_{\min,t}$作为环境风险的代理指标，其局限性在于：
 \begin{itemize}
-  \item 最小深度仅反映最近障碍物的距离，不包含运动方向与相对速度信息；
-  \item 在某些场景下（如障碍在侧方但无人机并不朝其运动），最小深度可能给出过于保守的风险估计。
-\end{itemize}
+当前RACS版本以最小深度$d_{\min,t}$作为环境风险的代理指标，
+其局限性在于： \item 最小深度仅反映最近障碍物的距离，
+不包含运动方向与相对速度信息；
+ \item 在某些场景下（如障碍在侧方但无人机并不朝其运动），
+最小深度可能给出过于保守的风险估计。
+ \end{itemize}
 
-后续可向真正的风险自适应版本扩展，技术路径包括：
+后续可向真正的风险自适应版本扩展，
+技术路径包括：
 
-\textbf{（1）基于碰撞时间（TTC）的风险估计。}
-通过结合障碍距离与相对速度，计算碰撞时间$\text{TTC} = d / v_{\text{rel}}$作为更精确的风险度量。$\delta_t$与TTC成反比：TTC越小（越危急），$\delta_t$越大（越放宽）。
+\textbf{（1）基于碰撞时间（TTC）的风险估计。
+} 通过结合障碍距离与相对速度，
+计算碰撞时间$\text{TTC} = d / v_{\text{rel}}$作为更精确的风险度量。
+$\delta_t$与TTC成反比：TTC越小（越危急），
+$\delta_t$越大（越放宽）。
 
-\textbf{（2）基于碰撞概率的风险估计。}
-利用策略网络的中间特征或独立的风险预测头，直接估计短期碰撞概率$P(\text{collision} \mid o_t)$。该概率可作为$\delta_t$的调度信号。
+\textbf{（2）基于碰撞概率的风险估计。
+} 利用策略网络的中间特征或独立的风险预测头，
+直接估计短期碰撞概率$P(\text{collision} \mid o_t)$。
+该概率可作为$\delta_t$的调度信号。
 
-\textbf{（3）学习型速率调度。}
-将$\delta_t$的调度规则本身作为可学习的模块，通过端到端训练或在线自适应来优化jerk-safety权衡。
+\textbf{（3）学习型速率调度。
+} 将$\delta_t$的调度规则本身作为可学习的模块，
+通过端到端训练或在线自适应来优化jerk-safety权衡。
 
-上述扩展方向将RACS从"基于启发式规则的工程模块"升级为"数据驱动的自适应安全组件"，与安全学习/安全证书类方法形成更紧密的衔接。这些扩展构成本文的重要后续工作方向。
+上述扩展方向将RACS从"基于启发式规则的工程模块"升级为"数据驱动的自适应安全组件"，
+与安全学习/安全证书类方法形成更紧密的衔接。
+这些扩展构成本文的重要后续工作方向。

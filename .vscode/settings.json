@@ -1,65 +1,141 @@
 {
-  "workbench.colorTheme": "Tokyo Night Light",
-  "latex-workshop.latex.recipes": [
-    {
-      "name": "BIT_thesis",
-      "tools": ["xelatex", "bibtex", "xelatex", "xelatex"]
-    },
-    {
-      "name": "xelatex",
-      "tools": ["xelatex"]
-    },
-    {
-      "name": "latexmk",
-      "tools": ["latexmk"]
-    },
-    {
-      "name": "pdflatex -> bibtex -> pdflatex*2",
-      "tools": ["pdflatex", "bibtex", "pdflatex", "pdflatex"]
-    }
-  ],
-  "latex-workshop.latex.tools": [
-    {
-      "name": "latexmk",
-      "command": "/Library/TeX/texbin/latexmk",
-      "args": [
-        "-synctex=1",
-        "-interaction=nonstopmode",
-        "-file-line-error",
-        "-pdf",
-        "%DOC%"
-      ]
-    },
-    {
-      "name": "xelatex",
-      "command": "/Library/TeX/texbin/xelatex",
-      "args": [
-        "-synctex=1",
-        "-interaction=nonstopmode",
-        "-file-line-error",
-        "%DOC%"
-      ]
-    },
-    {
-      "name": "pdflatex",
-      "command": "/Library/TeX/texbin/pdflatex",
-      "args": [
-        "-synctex=1",
-        "-interaction=nonstopmode",
-        "-file-line-error",
-        "%DOC%"
-      ]
-    },
-    {
-      "name": "bibtex",
-      "command": "/Library/TeX/texbin/bibtex",
-      "args": ["%DOCFILE%"]
-    }
-  ],
-  "latex-workshop.latex.autoBuild.run": "onSave",
+  // ============================
+  // Core editor stability and readability
+  // ============================
+  "files.eol": "\n",                        // Keep consistent line endings for clean Git diffs on macOS.
+  "files.insertFinalNewline": true,           // Avoid "no newline" churn in version control.
+  "files.trimTrailingWhitespace": true,       // Prevent noisy whitespace-only diffs in long thesis files.
+  "files.trimFinalNewlines": true,
+
+  "editor.insertSpaces": true,                // Stable indentation style for all team members.
+  "editor.tabSize": 2,
+  "editor.detectIndentation": false,
+  "editor.wordWrap": "on",                  // Prevent horizontal scrolling for long Chinese/English paragraphs.
+  "editor.wordWrapColumn": 100,              // Soft wrap target for long lines in source files.
+  "editor.wrappingIndent": "same",
+  "editor.lineNumbers": "on",
+  "editor.minimap.enabled": false,           // Reduce visual noise on long documents.
+  "editor.renderWhitespace": "selection",
+  "editor.scrollBeyondLastLine": false,
+  "editor.formatOnSave": false,
+  "editor.formatOnPaste": false,
+  "editor.rulers": [100],                     // Gentle line-length guide for readable source editing.
+  "editor.foldingStrategy": "indentation",  // Reliable folding for long LaTeX files and chapter blocks.
+  "editor.foldingImportsByDefault": true,
+  "editor.showFoldingControls": "mouseover",
+
+  // Hide basic non-error visual noise.
+  "workbench.editor.enablePreview": false,    // Keep one file per tab for stable navigation in big projects.
+  "workbench.editor.enablePreviewFromQuickOpen": false,
+  "editor.overviewRulerBorder": false,
+  "editor.matchBrackets": "always",
+  "editor.bracketPairColorization.enabled": false, // Reduce color noise.
+
+  // ============================
+  // Unicode / punctuation behavior (Chinese-friendly)
+  // ============================
+  "editor.unicodeHighlight.ambiguousCharacters": false,   // Disable false-positive ambiguity warnings.
+  "editor.unicodeHighlight.invisibleCharacters": false,   // Keep cursor/selection clean when editing mixed-language text.
+  "editor.unicodeHighlight.nonBasicASCII": false,
+  "editor.unicodeHighlight.allowedCharacters": {
+    "，": true,
+    "。": true,
+    "（": true,
+    "）": true,
+    "：": true,
+    "；": true,
+    "！": true,
+    "？": true,
+    "、": true,
+    "《": true,
+    "》": true,
+    "—": true,
+    "“": true,
+    "”": true
+  },
+
+  // ============================
+  // Hide generated files from editor/search noise
+  // ============================
+  "files.exclude": {
+    "**/*.aux": true,
+    "**/*.bbl": true,
+    "**/*.blg": true,
+    "**/*.fdb_latexmk": true,
+    "**/*.fls": true,
+    "**/*.synctex.gz": true,
+    "**/*.log": true,
+    "**/*.nav": true,
+    "**/*.snm": true,
+    "**/*.toc": true,
+    "**/*.out": true,
+    "**/*.acn": true,
+    "**/*.acr": true,
+    "**/*.alg": true,
+    "**/*.glg": true,
+    "**/*.glo": true,
+    "**/*.gls": true,
+    "**/*.ist": true,
+    "**/*.lof": true,
+    "**/*.lot": true,
+    "**/*.lol": true,
+    "**/*.ilg": true,
+    "**/*.dvi": true,
+    "**/*.ps": true,
+    "**/*.bcf": true,
+    "**/*.run.xml": true,
+    "**/.DS_Store": true,
+    "**/out/": true
+  },
+  "search.exclude": {
+    "**/*.aux": true,
+    "**/*.bbl": true,
+    "**/*.blg": true,
+    "**/*.fdb_latexmk": true,
+    "**/*.fls": true,
+    "**/*.log": true,
+    "**/*.toc": true,
+    "**/*.synctex.gz": true,
+    "**/*.out": true,
+    "**/out/": true
+  },
+
+  // ============================
+  // LaTeX Workshop (production configuration)
+  // ============================
+  "latex-workshop.latex.outDir": "out",      // Centralize outputs to keep thesis root clean.
+  "latex-workshop.latex.autoBuild.run": "onSave", // Compile automatically after save.
+  "latex-workshop.latex.autoBuild.interval": 1000,
+  "latex-workshop.latex.autoBuild.cleanAndRetry.enabled": true, // Retry build after cleanup if first pass fails.
   "latex-workshop.latex.autoClean.run": "onBuilt",
   "latex-workshop.latex.rootFile.doNotPrompt": true,
-  "latex-workshop.view.pdf.viewer": "tab",
+  "latex-workshop.latex.rootFile.useSubFile": true,
+
+  "latex-workshop.latex.tools": [
+    {
+      "name": "latexmk-xelatex",
+      "command": "/Library/TeX/texbin/latexmk",
+      "args": [
+        "-xelatex",
+        "-interaction=nonstopmode",
+        "-file-line-error",
+        "-synctex=1",
+        "-halt-on-error",
+        "-outdir=%OUTDIR%",
+        "%DOC%"
+      ]
+    }
+  ],
+
+  "latex-workshop.latex.recipes": [
+    {
+      "name": "latexmk (XeLaTeX + biblatex)",
+      "tools": ["latexmk-xelatex"]
+    }
+  ],
+
+  "latex-workshop.latex.recipe.default": "latexmk (XeLaTeX + biblatex)",
+
   "latex-workshop.latex.clean.fileTypes": [
     "*.aux",
     "*.bbl",
@@ -78,7 +154,61 @@
     "*.gls",
     "*.ist",
     "*.fls",
+    "*.fdb_latexmk",
     "*.log",
-    "*.fdb_latexmk"
-  ]
+    "*.snm",
+    "*.nav",
+    "*.synctex.gz",
+    "*.run.xml",
+    "*.bcf"
+  ],
+
+  // PDF viewer + SyncTeX
+  "latex-workshop.view.pdf.viewer": "tab",         // Keep preview in editor tab group.
+  "latex-workshop.view.pdf.ref.viewer": "tab",     // Open references in same viewer mode.
+  "latex-workshop.synctex.afterBuild.enabled": true, // Refresh SyncTeX after successful build.
+  "latex-workshop.synctex.magic.offset": 1,
+  "latex-workshop.view.pdf.internal.synctex.keybinding": "double-click",
+
+  // Structure and navigation (outline + section symbols)
+  "latex-workshop.view.outline.sections": [
+    "part",
+    "chapter",
+    "section",
+    "subsection",
+    "subsubsection",
+    "paragraph",
+    "subparagraph"
+  ],
+
+  // Label / citation completion and discovery
+  "latex-workshop.intellisense.label.enabled": true,
+  "latex-workshop.intellisense.citation.enabled": true,
+  "latex-workshop.intellisense.environment.enabled": true,
+  "latex-workshop.intellisense.package.enabled": true,
+  "latex-workshop.intellisense.unimathsymbols.enabled": true,
+  "latex-workshop.linting.enabled": true,
+  "latex-workshop.linting.chktex.enabled": false,
+  "latex-workshop.linting.lacheck.enabled": false,
+
+  // Keep references stable for thesis-scale projects.
+  "latex-workshop.message.update.show": false,
+
+  // ============================
+  // Language-specific tuning for LaTeX
+  // ============================
+  "[latex]": {
+    "editor.wordWrap": "on",
+    "editor.quickSuggestions": true,
+    "editor.suggestSelection": "first",
+    "editor.unicodeHighlight.nonBasicASCII": false,
+    "editor.unicodeHighlight.ambiguousCharacters": false,
+    "editor.defaultFormatter": "James-Yu.latex-workshop"
+  },
+
+  // Keep git-friendly formatting for generated auxiliary scripts or style overrides.
+  "[json]": {
+    "editor.insertSpaces": true,
+    "editor.tabSize": 2
+  }
 }

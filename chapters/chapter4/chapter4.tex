@@ -2,19 +2,33 @@
 
 \section{本章引言}
 
-第3章的实验结果表明，ViT+Mamba策略在高速段显著优于ViT+LSTM基线。然而，这些结论的成立有一个隐含前提：序列模型的内部状态在流式部署中被正确管理。本章将系统揭示一个关键陷阱——当状态管理出错时，碰撞率从0\%飙升至90\%。
+第3章的实验结果表明，
+ViT+Mamba策略在高速段显著优于ViT+LSTM基线。
+然而，
+这些结论的成立有一个隐含前提：序列模型的内部状态在流式部署中被正确管理。
+本章将系统揭示一个关键陷阱——当状态管理出错时，
+碰撞率从0\%飙升至90\%。
 
-端到端控制系统在部署时以流式（Streaming）方式运行：每个控制周期仅接收当前观测并输出控制指令。然而，训练时策略以定长序列Batch前向计算。这两种模式在状态管理上存在本质差异，若工程实现中误将内部状态在每次推理调用时重置，序列模型将退化为"无记忆策略"——等效于一个仅以当前帧为输入的反应式控制器。
+端到端控制系统在部署时以流式（Streaming）方式运行：每个控制周期仅接收当前观测并输出控制指令。
+然而，
+训练时策略以定长序列Batch前向计算。
+这两种模式在状态管理上存在本质差异，
+若工程实现中误将内部状态在每次推理调用时重置，
+序列模型将退化为"无记忆策略"——等效于一个仅以当前帧为输入的反应式控制器。
 
-这一问题在现有端到端控制文献中几乎未被系统讨论。大多数研究在报告实验结果时默认部署实现的正确性，但实际工程中，状态管理的错误可能以极其隐蔽的方式存在：策略仍能正常推理输出合理范围内的速度指令，低速下甚至可以完成部分避障任务，只有在高速或复杂环境中才暴露出灾难性的性能退化。
+这一问题在现有端到端控制文献中几乎未被系统讨论。
+大多数研究在报告实验结果时默认部署实现的正确性，
+但实际工程中，
+状态管理的错误可能以极其隐蔽的方式存在：策略仍能正常推理输出合理范围内的速度指令，
+低速下甚至可以完成部分避障任务，
+只有在高速或复杂环境中才暴露出灾难性的性能退化。
 
-本章的贡献在于：
 \begin{enumerate}
-  \item 给出Batch--Streaming等价性的严格条件定义与数学推导；
-  \item 分析常见工程错误的症状与诊断方法；
-  \item 提出回合边界级状态生命周期管理协议与硬防护机制；
-  \item 通过KeepState vs ResetState对比实验及多维消融定量证实问题的毁灭性后果（见第\ref{sec:ch4_exp}节）。
-\end{enumerate}
+本章的贡献在于： \item 给出Batch--Streaming等价性的严格条件定义与数学推导；
+ \item 分析常见工程错误的症状与诊断方法；
+ \item 提出回合边界级状态生命周期管理协议与硬防护机制；
+ \item 通过KeepState vs ResetState对比实验及多维消融定量证实问题的毁灭性后果（见第\ref{sec:ch4_exp}节）。
+ \end{enumerate}
 
 图~\ref{fig:ch4_structure}给出本章的逻辑链路。
 
@@ -47,9 +61,15 @@
 
 \subsection{Batch训练模式}
 
-训练阶段，策略网络以定长序列（$T=150$步）进行前向计算。序列模型接收完整序列$\{\mathbf{x}_1, \ldots, \mathbf{x}_T\}$，通过并行扫描（Mamba）或循环展开（LSTM）一次性计算所有输出。关键特征：整条序列一次性可见；状态在序列起始初始化、序列内连续传播、序列结束后丢弃。
+训练阶段，
+策略网络以定长序列（$T=150$步）进行前向计算。
+序列模型接收完整序列$\{\mathbf{x}_1, \ldots, \mathbf{x}_T\}$，
+通过并行扫描（Mamba）或循环展开（LSTM）一次性计算所有输出。
+关键特征：整条序列一次性可见；
+状态在序列起始初始化、序列内连续传播、序列结束后丢弃。
 
-以Mamba为例，Batch模式的计算过程可以展开为：
+以Mamba为例，
+Batch模式的计算过程可以展开为：
 \begin{align}
   \mathbf{h}_1^{\text{batch}} &= \bar{\mathbf{A}} \cdot \mathbf{h}_0 + \bar{\mathbf{B}}_1 \mathbf{x}_1, \quad \mathbf{y}_1^{\text{batch}} = \mathbf{C}_1 \mathbf{h}_1^{\text{batch}} \nonumber \\
   \mathbf{h}_2^{\text{batch}} &= \bar{\mathbf{A}} \cdot \mathbf{h}_1^{\text{batch}} + \bar{\mathbf{B}}_2 \mathbf{x}_2, \quad \mathbf{y}_2^{\text{batch}} = \mathbf{C}_2 \mathbf{h}_2^{\text{batch}} \nonumber \\
@@ -57,11 +77,17 @@
   \mathbf{h}_T^{\text{batch}} &= \bar{\mathbf{A}} \cdot \mathbf{h}_{T-1}^{\text{batch}} + \bar{\mathbf{B}}_T \mathbf{x}_T, \quad \mathbf{y}_T^{\text{batch}} = \mathbf{C}_T \mathbf{h}_T^{\text{batch}}
   \label{eq:batch_unfold}
 \end{align}
-其中$\mathbf{h}_0$为初始状态（通常为零向量），整个序列通过并行扫描算法\cite{Blelloch1990PrefixSum}高效计算。
+其中$\mathbf{h}_0$为初始状态（通常为零向量），
+整个序列通过并行扫描算法\cite{Blelloch1990PrefixSum}高效计算。
 
 \subsection{Streaming推理模式}
 
-部署阶段，系统以流式方式运行：每个控制周期仅输入$\mathbf{x}_t$，递推更新$\mathbf{h}_t$得到$\mathbf{y}_t$。关键特征：每步仅处理单帧；内部状态必须跨控制周期持续传播；模型无法访问未来信息。
+部署阶段，
+系统以流式方式运行：每个控制周期仅输入$\mathbf{x}_t$，
+递推更新$\mathbf{h}_t$得到$\mathbf{y}_t$。
+关键特征：每步仅处理单帧；
+内部状态必须跨控制周期持续传播；
+模型无法访问未来信息。
 
 Streaming模式的第$t$步计算为：
 \begin{align}
@@ -75,23 +101,27 @@ Streaming模式的第$t$步计算为：
 
 \begin{definition}[Batch--Streaming等价性]
 \label{def:bs_equiv}
-对于给定的序列模型$f$，若在相同的初始状态$\mathbf{h}_0$和相同的输入序列$\{\mathbf{x}_1, \ldots, \mathbf{x}_T\}$下，Batch模式的输出序列$\{\mathbf{y}_1^{\text{batch}}, \ldots, \mathbf{y}_T^{\text{batch}}\}$与Streaming模式的输出序列$\{\mathbf{y}_1^{\text{stream}}, \ldots, \mathbf{y}_T^{\text{stream}}\}$满足
+对于给定的序列模型$f$，
+若在相同的初始状态$\mathbf{h}_0$和相同的输入序列$\{\mathbf{x}_1, \ldots, \mathbf{x}_T\}$下，
+Batch模式的输出序列$\{\mathbf{y}_1^{\text{batch}}, \ldots, \mathbf{y}_T^{\text{batch}}\}$与Streaming模式的输出序列$\{\mathbf{y}_1^{\text{stream}}, \ldots, \mathbf{y}_T^{\text{stream}}\}$满足
 \begin{equation}
   \mathbf{y}_t^{\text{batch}} = \mathbf{y}_t^{\text{stream}}, \quad \forall t \in \{1, \ldots, T\}
 \end{equation}
 则称两种模式等价。
 \end{definition}
 
-当且仅当以下三个条件同时成立时，两种模式的输出严格等价：
 \begin{enumerate}
-  \item C1（初始化一致）：内部状态$\mathbf{h}_0$的初始化方式一致；
-  \item C2（传播连续）：同一回合内状态的更新不被中断或重置；
-  \item C3（输入一致）：输入序列的内容与顺序一致（特别是预处理流水线的确定性）。
-\end{enumerate}
+当且仅当以下三个条件同时成立时，
+两种模式的输出严格等价： \item C1（初始化一致）：内部状态$\mathbf{h}_0$的初始化方式一致；
+ \item C2（传播连续）：同一回合内状态的更新不被中断或重置；
+ \item C3（输入一致）：输入序列的内容与顺序一致（特别是预处理流水线的确定性）。
+ \end{enumerate}
 
 \subsection{SSM线性递推的等价性推导}
 
-推论1（SSM Streaming等价于Batch扫描的逐步展开）：对于Mamba的线性递推$\mathbf{h}_t = \bar{\mathbf{A}} \mathbf{h}_{t-1} + \bar{\mathbf{B}}_t \mathbf{x}_t$，在条件C1-C3成立时，Streaming模式是Batch并行扫描的等价展开。
+推论1（SSM Streaming等价于Batch扫描的逐步展开）：对于Mamba的线性递推$\mathbf{h}_t = \bar{\mathbf{A}} \mathbf{h}_{t-1} + \bar{\mathbf{B}}_t \mathbf{x}_t$，
+在条件C1-C3成立时，
+Streaming模式是Batch并行扫描的等价展开。
 
 证明：采用数学归纳法。
 
@@ -99,16 +129,22 @@ Streaming模式的第$t$步计算为：
 \begin{equation}
   \mathbf{h}_1^{\text{stream}} = \bar{\mathbf{A}} \cdot \mathbf{h}_0 + \bar{\mathbf{B}}_1 \mathbf{x}_1 = \mathbf{h}_1^{\text{batch}}
 \end{equation}
-由C1知$\mathbf{h}_0^{\text{stream}} = \mathbf{h}_0^{\text{batch}}$，由C3知$\mathbf{x}_1$相同，故等式成立。
+由C1知$\mathbf{h}_0^{\text{stream}} = \mathbf{h}_0^{\text{batch}}$，
+由C3知$\mathbf{x}_1$相同，
+故等式成立。
 
-归纳步骤：假设$\mathbf{h}_{t-1}^{\text{stream}} = \mathbf{h}_{t-1}^{\text{batch}}$，则由C2（状态未被重置）和C3（$\mathbf{x}_t$相同）：
+归纳步骤：假设$\mathbf{h}_{t-1}^{\text{stream}} = \mathbf{h}_{t-1}^{\text{batch}}$，
+则由C2（状态未被重置）和C3（$\mathbf{x}_t$相同）：
 \begin{equation}
   \mathbf{h}_t^{\text{stream}} = \bar{\mathbf{A}} \cdot \underbrace{\mathbf{h}_{t-1}^{\text{stream}}}_{= \mathbf{h}_{t-1}^{\text{batch}}} + \bar{\mathbf{B}}_t \mathbf{x}_t = \bar{\mathbf{A}} \cdot \mathbf{h}_{t-1}^{\text{batch}} + \bar{\mathbf{B}}_t \mathbf{x}_t = \mathbf{h}_t^{\text{batch}}
 \end{equation}
 
-由$\mathbf{h}_t^{\text{stream}} = \mathbf{h}_t^{\text{batch}}$直接得$\mathbf{y}_t^{\text{stream}} = \mathbf{C}_t \mathbf{h}_t^{\text{stream}} = \mathbf{C}_t \mathbf{h}_t^{\text{batch}} = \mathbf{y}_t^{\text{batch}}$。$\qed$
+由$\mathbf{h}_t^{\text{stream}} = \mathbf{h}_t^{\text{batch}}$直接得$\mathbf{y}_t^{\text{stream}} = \mathbf{C}_t \mathbf{h}_t^{\text{stream}} = \mathbf{C}_t \mathbf{h}_t^{\text{batch}} = \mathbf{y}_t^{\text{batch}}$。
+$\qed$
 
-该推论的逆否命题给出了诊断工具：若$\mathbf{y}_t^{\text{stream}} \neq \mathbf{y}_t^{\text{batch}}$，则C1、C2、C3中至少有一个被违反。这为定位状态管理Bug提供了形式化基础。
+该推论的逆否命题给出了诊断工具：若$\mathbf{y}_t^{\text{stream}} \neq \mathbf{y}_t^{\text{batch}}$，
+则C1、C2、C3中至少有一个被违反。
+这为定位状态管理Bug提供了形式化基础。
 
 \subsection{对LSTM/GRU与Transformer KV-Cache的类比}
 
@@ -119,15 +155,23 @@ Streaming模式的第$t$步计算为：
   \mathbf{h}_t &= \mathbf{o}_t \odot \tanh(\mathbf{c}_t)
   \label{eq:lstm_recurrence}
 \end{align}
-其中$\mathbf{f}_t, \mathbf{i}_t, \mathbf{o}_t$分别为遗忘门、输入门、输出门。等价性条件C1-C3同样适用，但C2需要保证$(\mathbf{h}_{t-1}, \mathbf{c}_{t-1})$联合传播——任一分量的重置都将破坏等价性。
+其中$\mathbf{f}_t, \mathbf{i}_t, \mathbf{o}_t$分别为遗忘门、输入门、输出门。
+等价性条件C1-C3同样适用，
+但C2需要保证$(\mathbf{h}_{t-1}, \mathbf{c}_{t-1})$联合传播——任一分量的重置都将破坏等价性。
 
-在本文的ViT+LSTM基线中，ResetState同样导致碰撞率急剧上升（第\ref{sec:ch4_lstm_reset}节），实验证实LSTM对状态重置的敏感性与Mamba相当。
+在本文的ViT+LSTM基线中，
+ResetState同样导致碰撞率急剧上升（第\ref{sec:ch4_lstm_reset}节），
+实验证实LSTM对状态重置的敏感性与Mamba相当。
 
-推论3（Transformer KV-Cache的类比）：自回归Transformer在增量推理时维护Key-Value缓存（KV-Cache）。每步推理时，当前token的Key和Value被追加到缓存中：
+推论3（Transformer KV-Cache的类比）：自回归Transformer在增量推理时维护Key-Value缓存（KV-Cache）。
+每步推理时，
+当前token的Key和Value被追加到缓存中：
 \begin{equation}
   \text{KV-Cache}_t = \text{Concat}(\text{KV-Cache}_{t-1}, [\mathbf{K}_t, \mathbf{V}_t])
 \end{equation}
-若缓存在推理过程中被错误清空，Transformer将丧失对历史token的注意力，退化为仅关注当前token的模型——与Mamba/LSTM的状态重置在功能上等价。
+若缓存在推理过程中被错误清空，
+Transformer将丧失对历史token的注意力，
+退化为仅关注当前token的模型——与Mamba/LSTM的状态重置在功能上等价。
 
 表~\ref{tab:state_analogy}总结了三类序列模型的状态管理类比。
 
@@ -147,26 +191,34 @@ Transformer & KV-Cache $\in \mathbb{R}^{L \times 2d}$ & 缓存拼接 & 单token�
 \end{tabular}
 \end{table}
 
-这一分析表明，本章提出的状态生命周期管理协议具有跨架构的普适性：任何依赖跨步状态传递的序列模型在流式部署中都面临相同的风险。
+这一分析表明，
+本章提出的状态生命周期管理协议具有跨架构的普适性：任何依赖跨步状态传递的序列模型在流式部署中都面临相同的风险。
 
 
 \section{状态生命周期协议}
 
 \subsection{错误状态重置的退化机理}
 
-当内部状态在每个控制步被重置为零向量时，递推方程退化为：
+当内部状态在每个控制步被重置为零向量时，
+递推方程退化为：
 \begin{equation}
   \mathbf{h}_t^{\text{reset}} = \bar{\mathbf{A}} \cdot \mathbf{0} + \bar{\mathbf{B}}_t \mathbf{x}_t = \bar{\mathbf{B}}_t \mathbf{x}_t
   \label{eq:reset_degenerate_ch4}
 \end{equation}
-模型输出仅取决于当前帧$\mathbf{x}_t$，完全丧失历史记忆。这引发级联效应：
+模型输出仅取决于当前帧$\mathbf{x}_t$，
+完全丧失历史记忆。
+这引发级联效应：
 
 \begin{enumerate}
-  \item 时序聚合失效：模型无法利用前几帧的运动信息估计障碍的相对运动方向，避障决策仅基于当前深度快照；
-  \item 控制指令抖动加剧：相邻帧的深度观测存在传感器噪声，无记忆模型对噪声的逐帧放大导致输出抖动显著增加；
-  \item 系统性横向漂移：抖动指令的统计偏差（例如由相机安装偏差引起的系统性深度偏移）在无历史修正的情况下被持续放大，表现为宏观轨迹漂移；
-  \item 碰撞率急剧上升：上述三个效应叠加，在高速密集障碍环境中导致碰撞率从接近0\%飙升至90\%。
-\end{enumerate}
+  \item 时序聚合失效：模型无法利用前几帧的运动信息估计障碍的相对运动方向，
+    避障决策仅基于当前深度快照；
+     \item 控制指令抖动加剧：相邻帧的深度观测存在传感器噪声，
+    无记忆模型对噪声的逐帧放大导致输出抖动显著增加；
+     \item 系统性横向漂移：抖动指令的统计偏差（例如由相机安装偏差引起的系统性深度偏移）在无历史修正的情况下被持续放大，
+    表现为宏观轨迹漂移；
+     \item 碰撞率急剧上升：上述三个效应叠加，
+    在高速密集障碍环境中导致碰撞率从接近0\%飙升至90\%。
+     \end{enumerate}
 
 图~\ref{fig:degradation_chain}以因果链形式展示了这一退化过程。
 
@@ -196,7 +248,8 @@ Transformer & KV-Cache $\in \mathbb{R}^{L \times 2d}$ & 缓存拼接 & 单token�
 
 \subsection{回合边界级状态管理协议}
 
-协议的核心原则为：序列模型的内部状态仅在回合边界进行初始化，回合内保持连续传播：
+协议的核心原则为：序列模型的内部状态仅在回合边界进行初始化，
+回合内保持连续传播：
 \begin{equation}
   \mathbf{h}_t = \begin{cases}
     \mathbf{0} & \text{若 } t = t_{\text{episode\_start}} \\
@@ -294,12 +347,19 @@ Batch/Streaming时间轴对比示意见图~\ref{fig:batch_stream_timeline}。
 \end{algorithmic}
 \end{algorithm}
 
-关键实现细节包括：
 \begin{itemize}
-  \item Mamba卷积缓存：Mamba模块内部的1D卷积层（$d_{\text{conv}}=4$）维护一个长度为$d_{\text{conv}}-1=3$的输入缓存。该缓存同样需要在回合边界清零、回合内持续更新。遗漏卷积缓存的重置不会导致碰撞率飙升（因其影响仅持续3步），但会在回合起始引入约3步的输出偏差；
-  \item 序列偏移（seqlen\_offset）：Mamba的某些位置编码实现依赖seqlen\_offset指示当前处于序列中的绝对位置。若该计数器未正确累加或被意外重置，可能导致位置编码错误；
-  \item Python框架的陷阱：在PyTorch中，\texttt{model.eval()}仅影响Dropout和BatchNorm的行为，不会自动处理序列模型的内部状态。状态管理是用户代码的责任。
-\end{itemize}
+关键实现细节包括： \item Mamba卷积缓存：Mamba模块内部的1D卷积层（$d_{\text{conv}}=4$）维护一个长度为$d_{\text{conv}}-1=3$的输入缓存。
+该缓存同样需要在回合边界清零、回合内持续更新。
+遗漏卷积缓存的重置不会导致碰撞率飙升（因其影响仅持续3步），
+但会在回合起始引入约3步的输出偏差；
+ \item 序列偏移（seqlen\_offset）：Mamba的某些位置编码实现依赖seqlen\_offset指示当前处于序列中的绝对位置。
+若该计数器未正确累加或被意外重置，
+可能导致位置编码错误；
+ \item Python框架的陷阱：在PyTorch中，
+\texttt{model.eval()}仅影响Dropout和BatchNorm的行为，
+不会自动处理序列模型的内部状态。
+状态管理是用户代码的责任。
+ \end{itemize}
 
 \subsection{常见工程错误与症状对照}
 
@@ -325,16 +385,25 @@ seqlen\_offset未累加 & 回合内offset固定为0或被意外重置 & 位置�
 \end{tabular}
 \end{table}
 
-其中，每步状态重置是最严重的错误（直接导致碰撞率从0\%$\rightarrow$90\%），也是最容易在不经意间引入的——例如在推理循环中调用封装函数时，函数内部为保证"无副作用"而创建了新的状态张量。
+其中，
+每步状态重置是最严重的错误（直接导致碰撞率从0\%$\rightarrow$90\%），
+也是最容易在不经意间引入的——例如在推理循环中调用封装函数时，
+函数内部为保证"无副作用"而创建了新的状态张量。
 
-数值精度不一致是最隐蔽的错误：float16推理在单步上的误差可能仅为$10^{-3}$量级，但通过递推累积$T$步后（$T=150$），总误差可达$O(T \cdot 10^{-3}) = O(10^{-1})$量级，足以导致控制行为偏差。本文实验统一使用float32精度以消除此类风险。
+数值精度不一致是最隐蔽的错误：float16推理在单步上的误差可能仅为$10^{-3}$量级，
+但通过递推累积$T$步后（$T=150$），
+总误差可达$O(T \cdot 10^{-3}) = O(10^{-1})$量级，
+足以导致控制行为偏差。
+本文实验统一使用float32精度以消除此类风险。
 
 
 \section{等价性单测与硬防护机制}
 
 \subsection{等价性单测}
 
-给定一条测试轨迹$\{\mathbf{x}_1, \ldots, \mathbf{x}_T\}$，分别以Batch和Streaming模式前向计算，比较逐步输出差异：
+给定一条测试轨迹$\{\mathbf{x}_1, \ldots, \mathbf{x}_T\}$，
+分别以Batch和Streaming模式前向计算，
+比较逐步输出差异：
 \begin{equation}
   \Delta \mathbf{v}_t = \|\mathbf{y}_t^{\text{batch}} - \mathbf{y}_t^{\text{stream}}\|_2
   \label{eq:bs_diff_ch4}
@@ -379,11 +448,15 @@ seqlen\_offset未累加 & 回合内offset固定为0或被意外重置 & 位置�
 
 \begin{itemize}
   \item float32的机器精度（machine epsilon）为$\epsilon_{\text{mach}} \approx 1.19 \times 10^{-7}$；
-  \item 对于包含$d_{\text{model}} = 192$维矩阵-向量乘法的单步递推，理论最大浮点累积误差约为$O(\sqrt{d_{\text{model}}} \cdot \epsilon_{\text{mach}}) \approx O(10^{-6})$；
-  \item 经4层Mamba的级联递推，单步误差上界约为$4 \times O(10^{-6}) \approx O(10^{-5})$。
-\end{itemize}
+     \item 对于包含$d_{\text{model}} = 192$维矩阵-向量乘法的单步递推，
+    理论最大浮点累积误差约为$O(\sqrt{d_{\text{model}}} \cdot \epsilon_{\text{mach}}) \approx O(10^{-6})$；
+     \item 经4层Mamba的级联递推，
+    单步误差上界约为$4 \times O(10^{-6}) \approx O(10^{-5})$。
+     \end{itemize}
 
-因此$\epsilon = 10^{-5}$既能容纳正常的浮点误差累积，又能检测到任何状态管理级别的错误（该类错误通常导致$\Delta_t > 10^{-1}$，与阈值差5个数量级以上）。
+因此$\epsilon = 10^{-5}$既能容纳正常的浮点误差累积，
+又能检测到任何状态管理级别的错误（该类错误通常导致$\Delta_t > 10^{-1}$，
+与阈值差5个数量级以上）。
 
 等价性测试配置与通过标准见表~\ref{tab:equiv_test_config}。
 \begin{table}[htbp]
@@ -406,13 +479,18 @@ CUDA确定性 & \texttt{torch.use\_deterministic\_algorithms(True)} & 消除非�
 
 \subsection{硬防护机制}
 
-硬防护机制旨在将"隐蔽的工程Bug"转化为"可立即检测的运行时错误"，包含三个层级：
+硬防护机制旨在将"隐蔽的工程Bug"转化为"可立即检测的运行时错误"，
+包含三个层级：
 
 \begin{enumerate}
-  \item 运行时断言（Assertion）：每个控制步前检查推理参数的合法性——seqlen\_offset是否单调递增、状态张量形状是否匹配、当前是否处于已知的安全模式。断言失败触发fail-fast立即终止，避免产生错误数据；
-  \item 配置锁定（Config Lock）：评测开始时将关键配置（模型路径、权重哈希、推理精度、RACS参数等）写入日志并锁定，运行中任何修改尝试触发告警；
-  \item 可审计日志（Audit Log）：记录完整的运行时信息，用于事后审计与问题定位。
-\end{enumerate}
+  \item 运行时断言（Assertion）：每个控制步前检查推理参数的合法性——seqlen\_offset是否单调递增、状态张量形状是否匹配、当前是否处于已知的安全模式。
+    断言失败触发fail-fast立即终止，
+    避免产生错误数据；
+     \item 配置锁定（Config Lock）：评测开始时将关键配置（模型路径、权重哈希、推理精度、RACS参数等）写入日志并锁定，
+    运行中任何修改尝试触发告警；
+     \item 可审计日志（Audit Log）：记录完整的运行时信息，
+    用于事后审计与问题定位。
+     \end{enumerate}
 
 表~\ref{tab:audit_log_fields}给出可审计日志的字段定义。
 
@@ -439,21 +517,24 @@ CUDA确定性 & \texttt{torch.use\_deterministic\_algorithms(True)} & 消除非�
 \end{tabular}
 \end{table}
 
-这套硬防护机制的设计理念是将信任建立在可验证的机制上，而非开发者的记忆力上。在协作开发或代码审查中，任何人都可以通过审计日志独立验证实验结果的状态管理正确性。
+这套硬防护机制的设计理念是将信任建立在可验证的机制上，
+而非开发者的记忆力上。
+在协作开发或代码审查中，
+任何人都可以通过审计日志独立验证实验结果的状态管理正确性。
 
 
-\section{案例研究与实验}
-\label{sec:ch4_exp}
+\section{案例研究与实验} \label{sec:ch4_exp}
 
-本节评测协议引用第2章表~\ref{tab:eval_protocol_unified}。所有实验使用完全相同的策略权重，唯一变量是状态管理方式或频率。
+本节评测协议引用第2章表~\ref{tab:eval_protocol_unified}。
+所有实验使用完全相同的策略权重，
+唯一变量是状态管理方式或频率。
 
 \subsection{KeepState与ResetState对比}
 
-设置消融实验：
 \begin{itemize}
-  \item KeepState（正确模式）：仅在回合边界重置内部状态；
-  \item ResetState（错误模式）：在每个控制步重置内部状态为零向量。
-\end{itemize}
+设置消融实验： \item KeepState（正确模式）：仅在回合边界重置内部状态；
+ \item ResetState（错误模式）：在每个控制步重置内部状态为零向量。
+ \end{itemize}
 
 \begin{table}[htbp]
 \centering
@@ -473,17 +554,20 @@ Mamba (ResetState) & 90.0 & 0.376 & 0.770 \\
 \end{tabular}
 \end{table}
 
-结果（表~\ref{tab:state_ablation_ch4}）表明：
 \begin{enumerate}
-  \item 碰撞率从0\%跃升至90\%：逐步重置导致策略完全丧失避障能力。这一退化幅度远超直觉预期——ResetState并非让模型输出随机值，而是让模型输出看似合理但缺乏时序连贯性的指令序列；
-  \item 指令抖动增加约90\%：Mean Jerk从0.198 m/s上升至0.376 m/s，与理论预期一致——无记忆模型对逐帧深度噪声的逐帧放大导致输出抖动；
-  \item 系统性横向漂移增加34倍：Mean Y Drift从$\SI{0.022}{m}$增至$\SI{0.770}{m}$，在密集障碍环境中已足以使无人机偏离安全通道。
-\end{enumerate}
+结果（表~\ref{tab:state_ablation_ch4}）表明： \item 碰撞率从0\%跃升至90\%：逐步重置导致策略完全丧失避障能力。
+这一退化幅度远超直觉预期——ResetState并非让模型输出随机值，
+而是让模型输出看似合理但缺乏时序连贯性的指令序列；
+ \item 指令抖动增加约90\%：Mean Jerk从0.198 m/s上升至0.376 m/s，
+与理论预期一致——无记忆模型对逐帧深度噪声的逐帧放大导致输出抖动；
+ \item 系统性横向漂移增加34倍：Mean Y Drift从$\SI{0.022}{m}$增至$\SI{0.770}{m}$，
+在密集障碍环境中已足以使无人机偏离安全通道。
+ \end{enumerate}
 
-\subsection{LSTM的状态重置退化}
-\label{sec:ch4_lstm_reset}
+\subsection{LSTM的状态重置退化} \label{sec:ch4_lstm_reset}
 
-为验证状态管理问题的跨架构普遍性，对ViT+LSTM基线进行相同的KeepState/ResetState消融。
+为验证状态管理问题的跨架构普遍性，
+对ViT+LSTM基线进行相同的KeepState/ResetState消融。
 
 结果见表~\ref{tab:lstm_state_ablation}。
 \begin{table}[htbp]
@@ -504,7 +588,8 @@ LSTM (ResetState) & \textbf{--} & \textbf{--} & \textbf{--} \\
 \end{tablenotes}
 \end{table}
 
-预期结果为LSTM在ResetState下同样出现碰撞率的急剧上升，从而实验证实状态管理问题与序列模型的具体架构无关——这是一个通用的流式部署风险。
+预期结果为LSTM在ResetState下同样出现碰撞率的急剧上升，
+从而实验证实状态管理问题与序列模型的具体架构无关——这是一个通用的流式部署风险。
 
 \subsection{漂移可视化}
 
@@ -522,13 +607,19 @@ LSTM (ResetState) & \textbf{--} & \textbf{--} & \textbf{--} \\
 \label{fig:lateral_drift_ch4}
 \end{figure}
 
-图~\ref{fig:drift_ch4}和图~\ref{fig:lateral_drift_ch4}直观展示了ResetState导致的系统性漂移。$\SI{0.770}{m}$的平均横向偏移在密集障碍环境（障碍间距$\sim\SI{2}{m}$）中意味着无人机的有效安全通道宽度被"吃掉"了约38\%，碰撞概率的急剧上升因而不可避免。
+图~\ref{fig:drift_ch4}和图~\ref{fig:lateral_drift_ch4}直观展示了ResetState导致的系统性漂移。
+$\SI{0.770}{m}$的平均横向偏移在密集障碍环境（障碍间距$\sim\SI{2}{m}$）中意味着无人机的有效安全通道宽度被"吃掉"了约38\%，
+碰撞概率的急剧上升因而不可避免。
 
 \subsection{等价性单测结果}
 
 \FloatBarrier
 
-在正确的KeepState实现下，Batch与Streaming模式输出差异$\Delta \mathbf{v}_t$在$10^{-6}$量级，远低于$\epsilon = 10^{-5}$的阈值，确认两种模式的数学等价性未被工程实现破坏。图~\ref{fig:equiv_test_ch4}给出$\Delta \mathbf{v}_t$随时间步的分布。
+在正确的KeepState实现下，
+Batch与Streaming模式输出差异$\Delta \mathbf{v}_t$在$10^{-6}$量级，
+远低于$\epsilon = 10^{-5}$的阈值，
+确认两种模式的数学等价性未被工程实现破坏。
+图~\ref{fig:equiv_test_ch4}给出$\Delta \mathbf{v}_t$随时间步的分布。
 
 \begin{figure}[htbp]
 \centering
@@ -562,11 +653,17 @@ LSTM (ResetState) & \textbf{--} & \textbf{--} & \textbf{--} \\
 \label{fig:equiv_test_ch4}
 \end{figure}
 
-可以看到：KeepState的$\Delta \mathbf{v}_t$稳定在$10^{-6}$附近，远低于阈值（虚线）；而ResetState的$\Delta \mathbf{v}_t$高达$10^{-1}$量级，超出阈值4个数量级——等价性单测可以在第一个时间步即检测到问题。
+可以看到：KeepState的$\Delta \mathbf{v}_t$稳定在$10^{-6}$附近，
+远低于阈值（虚线）；
+而ResetState的$\Delta \mathbf{v}_t$高达$10^{-1}$量级，
+超出阈值4个数量级——等价性单测可以在第一个时间步即检测到问题。
 
 \subsection{重置频率消融}
 
-为进一步理解状态重置的影响，本节考察"每$k$步重置一次"（$k=1, 5, 10, 20, 50, \infty$）的退化曲线。$k=1$对应ResetState，$k=\infty$对应KeepState。
+为进一步理解状态重置的影响，
+本节考察"每$k$步重置一次"（$k=1, 5, 10, 20, 50, \infty$）的退化曲线。
+$k=1$对应ResetState，
+$k=\infty$对应KeepState。
 
 消融结果汇总见表~\ref{tab:reset_freq_ablation}。
 \begin{table}[htbp]
@@ -591,11 +688,20 @@ $k=\infty$（不重置）& 全程 & 0.0 & 0.198 & 0.022 \\
 \end{tablenotes}
 \end{table}
 
-预期趋势：碰撞率随$k$的增大而递减，但并非线性关系——存在一个"临界记忆长度"$k^*$，当$k > k^*$时碰撞率迅速趋近KeepState水平。这一$k^*$反映了策略在当前任务中实际依赖的时序上下文长度，具有重要的工程指导意义：它表明模型并非简单地"越长记忆越好"，而是存在一个任务依赖的有效记忆窗口。
+预期趋势：碰撞率随$k$的增大而递减，
+但并非线性关系——存在一个"临界记忆长度"$k^*$，
+当$k > k^*$时碰撞率迅速趋近KeepState水平。
+这一$k^*$反映了策略在当前任务中实际依赖的时序上下文长度，
+具有重要的工程指导意义：它表明模型并非简单地"越长记忆越好"，
+而是存在一个任务依赖的有效记忆窗口。
 
 \subsection{部署burn-in消融}
 
-第3章的训练burn-in（前20步不计入损失）是训练侧的设计。本节考察部署侧的burn-in效果：在回合开始后的前$b$步内，虽然模型正常推理并更新状态，但控制指令由专家策略提供（或固定为匀速前进），以等待隐状态"热身"到稳定值。
+第3章的训练burn-in（前20步不计入损失）是训练侧的设计。
+本节考察部署侧的burn-in效果：在回合开始后的前$b$步内，
+虽然模型正常推理并更新状态，
+但控制指令由专家策略提供（或固定为匀速前进），
+以等待隐状态"热身"到稳定值。
 
 消融结果汇总见表~\ref{tab:deploy_burnin_ablation}。
 \begin{table}[htbp]
@@ -617,11 +723,18 @@ $b=20$ & 匀速前进 & \textbf{--} & \textbf{--} & \textbf{--} \\
 \end{tablenotes}
 \end{table}
 
-部署burn-in的理论意义在于：Mamba的隐状态$\mathbf{h}_t$在零初始化后需要若干步输入才能"充电"到有意义的值。在此期间，模型输出可能不够可靠。对于本文的仿真环境（起始处通常为开阔区域），这一影响较小；但对于实际部署场景（无人机可能在复杂环境中任意位置启动），部署burn-in可能成为必要的安全机制。
+部署burn-in的理论意义在于：Mamba的隐状态$\mathbf{h}_t$在零初始化后需要若干步输入才能"充电"到有意义的值。
+在此期间，
+模型输出可能不够可靠。
+对于本文的仿真环境（起始处通常为开阔区域），
+这一影响较小；
+但对于实际部署场景（无人机可能在复杂环境中任意位置启动），
+部署burn-in可能成为必要的安全机制。
 
 \subsection{跨速度泛化验证}
 
-为验证状态管理问题在不同速度条件下的一致性，表~\ref{tab:keepreset_speed}给出KeepState与ResetState在多个速度档位的对比。
+为验证状态管理问题在不同速度条件下的一致性，
+表~\ref{tab:keepreset_speed}给出KeepState与ResetState在多个速度档位的对比。
 
 \begin{table}[htbp]
 \centering
@@ -648,19 +761,33 @@ ResetState & \textbf{--} & \textbf{--} & 0.770 & \textbf{--} & \textbf{--} \\
 \end{tablenotes}
 \end{table}
 
-预期趋势为：低速（$\SI{3}{m/s}$）下ResetState的碰撞率虽高于KeepState但可能仍在较低水平（因低速下反应时间充裕，即使无记忆也能完成部分避障），而高速（$\SI{12}{m/s}$）下退化最为严重。这解释了为什么状态管理Bug在开发初期容易被忽视——低速测试中问题可能不明显，只有在高速压力测试中才暴露。
+预期趋势为：低速（$\SI{3}{m/s}$）下ResetState的碰撞率虽高于KeepState但可能仍在较低水平（因低速下反应时间充裕，
+即使无记忆也能完成部分避障），
+而高速（$\SI{12}{m/s}$）下退化最为严重。
+这解释了为什么状态管理Bug在开发初期容易被忽视——低速测试中问题可能不明显，
+只有在高速压力测试中才暴露。
 
 
 \section{本章小结}
 
-本章系统分析了序列模型在流式部署中的状态一致性问题，揭示了一个对所有使用序列模型进行端到端控制的研究具有普遍警示意义的关键陷阱：
+本章系统分析了序列模型在流式部署中的状态一致性问题，
+揭示了一个对所有使用序列模型进行端到端控制的研究具有普遍警示意义的关键陷阱：
 
 \begin{enumerate}
-  \item 理论贡献：给出了Batch--Streaming等价性的形式化定义、充要条件与归纳证明，分析了SSM、LSTM、Transformer三类架构的状态管理类比，建立了跨架构的通用理论框架；
-  \item 实验证据：碰撞率从0\%飙升至90\%、Jerk增加90\%、Y-Drift增加34倍的实验数据，以无可争辩的方式证明了状态管理错误的毁灭性后果。重置频率消融揭示了"临界记忆长度"的存在；
-  \item 工程方法论：回合边界级状态生命周期管理协议、常见错误症状对照表、等价性单测与硬防护机制（断言+配置锁定+可审计日志），将"隐蔽的工程Bug"转化为"可检测的运行时错误"。
-\end{enumerate}
+  \item 理论贡献：给出了Batch--Streaming等价性的形式化定义、充要条件与归纳证明，
+    分析了SSM、LSTM、Transformer三类架构的状态管理类比，
+    建立了跨架构的通用理论框架；
+     \item 实验证据：碰撞率从0\%飙升至90\%、Jerk增加90\%、Y-Drift增加34倍的实验数据，
+    以无可争辩的方式证明了状态管理错误的毁灭性后果。
+    重置频率消融揭示了"临界记忆长度"的存在；
+     \item 工程方法论：回合边界级状态生命周期管理协议、常见错误症状对照表、等价性单测与硬防护机制（断言+配置锁定+可审计日志），
+    将"隐蔽的工程Bug"转化为"可检测的运行时错误"。
+     \end{enumerate}
 
-我们把部署一致性从经验问题变成了可验证问题。这一方法论对所有依赖内部状态递推的序列模型均具有普适价值，尤其是在安全关键的实时控制应用中。
+我们把部署一致性从经验问题变成了可验证问题。
+这一方法论对所有依赖内部状态递推的序列模型均具有普适价值，
+尤其是在安全关键的实时控制应用中。
 
-在确保部署一致性的基础上，第5章将进一步探索更高效的视觉骨干：将空间编码器从ViT替换为MambaVision，考察全SSM架构（空间SSM + 时序SSM）的可行性与能力边界。
+在确保部署一致性的基础上，
+第5章将进一步探索更高效的视觉骨干：将空间编码器从ViT替换为MambaVision，
+考察全SSM架构（空间SSM + 时序SSM）的可行性与能力边界。
