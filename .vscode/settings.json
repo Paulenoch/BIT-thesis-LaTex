@@ -84,8 +84,7 @@
     "**/*.ps": true,
     "**/*.bcf": true,
     "**/*.run.xml": true,
-    "**/.DS_Store": true,
-    "**/out/": true
+    "**/.DS_Store": true
   },
   "search.exclude": {
     "**/*.aux": true,
@@ -96,8 +95,7 @@
     "**/*.log": true,
     "**/*.toc": true,
     "**/*.synctex.gz": true,
-    "**/*.out": true,
-    "**/out/": true
+    "**/*.out": true
   },
 
   // ============================
@@ -124,13 +122,21 @@
         "-outdir=%OUTDIR%",
         "%DOC%"
       ]
+    },
+    {
+      "name": "stamp-pdf-with-timestamp",
+      "command": "/bin/zsh",
+      "args": [
+        "-lc",
+        "TS=$(date +%Y%m%d_%H%M%S); OUTDIR=\"%OUTDIR%\"; DOCFILE=\"%DOCFILE%\"; SRC=\"$OUTDIR/$DOCFILE.pdf\"; if [ -f \"$SRC\" ]; then DST=\"$OUTDIR/${DOCFILE}_${TS}.pdf\"; cp \"$SRC\" \"$DST\"; setopt local_options nonomatch; OLD=$(ls -1t \"$OUTDIR\"/\"${DOCFILE}\"_*.pdf 2>/dev/null | tail -n +6); if [ -n \"$OLD\" ]; then printf '%s\\n' \"$OLD\" | xargs -I{} rm -f -- \"{}\"; fi; echo \"[LaTeX Workshop] stamped: $DST (keep latest 5)\"; else echo \"[LaTeX Workshop] missing: $SRC\"; fi"
+      ]
     }
   ],
 
   "latex-workshop.latex.recipes": [
     {
       "name": "latexmk (XeLaTeX + biblatex)",
-      "tools": ["latexmk-xelatex"]
+      "tools": ["latexmk-xelatex", "stamp-pdf-with-timestamp"]
     }
   ],
 
@@ -199,7 +205,11 @@
   // ============================
   "[latex]": {
     "editor.wordWrap": "on",
-    "editor.quickSuggestions": true,
+    "editor.quickSuggestions": {
+      "comments": "on",
+      "strings": "on",
+      "other": "on"
+    },
     "editor.suggestSelection": "first",
     "editor.unicodeHighlight.nonBasicASCII": false,
     "editor.unicodeHighlight.ambiguousCharacters": false,

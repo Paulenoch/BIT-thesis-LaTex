@@ -1,0 +1,25 @@
+\documentclass{ctexart}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\begin{document}
+\thispagestyle{empty}
+\begin{center}
+\begin{tikzpicture}[
+  >=Stealth,
+  block/.style={draw, rounded corners=2pt, minimum width=2.5cm, minimum height=0.65cm, align=center, font=\small},
+  arrow/.style={->, thick, color=red!60},
+]
+\node[block, fill=red!10] (reset) {每步重置 $\mathbf{h}=\mathbf{0}$};
+\node[block, fill=red!15, right=0.9cm of reset] (no_mem) {时序聚合失效};
+\node[block, fill=red!20, right=0.9cm of no_mem] (jitter) {指令抖动 $\uparrow$};
+\node[block, fill=red!25, below=0.95cm of no_mem] (drift) {系统性漂移};
+\node[block, fill=red!35, right=1.1cm of drift] (crash) {碰撞率 90\%};
+
+\draw[arrow] (reset.east) -- (no_mem.west);
+\draw[arrow] (no_mem.east) -- (jitter.west);
+\draw[arrow] (no_mem.south) -- (drift.north);
+\draw[arrow] (jitter.south west) to[out=-115, in=20] (drift.east);
+\draw[arrow] (drift.east) -- (crash.west);
+\end{tikzpicture}
+\end{center}
+\end{document}

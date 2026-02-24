@@ -274,7 +274,7 @@ footskip=0.7cm% 页脚 1.8cm %
 %==================================对于openright 选项，必须保证章页右开，且如果前章末页内容须清空其页眉页脚。===================
 \let\BIT@cleardoublepage\cleardoublepage
 \newcommand{\BIT@clearemptydoublepage}{%
-	\clearpage{\pagestyle{BIT@empty}\BIT@cleardoublepage}}
+	{\pagestyle{BIT@empty}\BIT@cleardoublepage}}
 \let\cleardoublepage\BIT@clearemptydoublepage
 
  %================修该frontmatter 的页码为大写罗马格式，并调整页面风格===============
@@ -642,34 +642,49 @@ footskip=0.7cm% 页脚 1.8cm %
 %绘制书脊，绘制树立排放的论文题目、作者姓名和学校名称
 \newcommand\makeVerticalenWords[1]{\\\rotatebox[origin=c]{270}{#1} }%设置英文字母树立排放效果
 \newcommand\makeVerticalTitle{
-   \ifBIT@isnormal{
-   \cleardoublepage
-   \thispagestyle{empty}
-   \vskip 5cm
-   \begin{center}
-    \setstretch{1.1}
-    \begin{minipage}{1em}
-        {\heiti\zihao{3}\BIT@value@vtitle}
-        \vskip 2cm
-        {\heiti\zihao{3}{\ifBIT@isblindcheck \rotatebox[origin=c]{270}{* * *}\else \BIT@value@author \fi}}  
-        \vskip 2cm
-        {\heiti\zihao{3}\BIT@value@school}
-    \end{minipage}
-   \end{center}
-    \clearpage
-    \if@twoside
-        \thispagestyle{empty}
-        \cleardoublepage
-    \fi
-	} 
-	\fi
+	   \ifBIT@isnormal{
+	   % Avoid producing an extra blank page in oneside mode when this macro
+	   % follows another explicit page break (common in the front-matter sequence).
+	   \if@twoside
+	     \cleardoublepage
+	   \else
+	     % In oneside mode, the caller (cover pages) already ends the previous page.
+	     % Do not issue an additional page break here.
+	     \relax
+	   \fi
+	   \thispagestyle{empty}
+	   % Build the whole spine page as a single box so TeX will not decide to
+	   % "break before it" (which can create an all-white page for long titles).
+	   \vbox to \textheight{%
+	     \vss
+	     \hbox to \textwidth{%
+	       \hss
+	       \setstretch{1.1}%
+	       \begin{minipage}{1em}
+	         {\heiti\zihao{3}\BIT@value@vtitle}
+	         \vskip 2cm
+	         {\heiti\zihao{3}{\ifBIT@isblindcheck \rotatebox[origin=c]{270}{* * *}\else \BIT@value@author \fi}}%
+	         \vskip 2cm
+	         {\heiti\zihao{3}\BIT@value@school}
+	       \end{minipage}
+	       \hss
+	     }%
+	     \vss
+	   }%
+	    \clearpage
+	    \if@twoside
+	        \thispagestyle{empty}
+	        \cleardoublepage
+	    \fi
+		} 
+		\fi
 
 }
 
 
 % 原创性声明
 \newcommand\makeDeclareOriginaltemp{%
-  \cleardoublepage
+  \if@twoside\cleardoublepage\fi
   \pdfbookmark[0]{声明}{statement}
   \thispagestyle{empty}
   \begin{center}

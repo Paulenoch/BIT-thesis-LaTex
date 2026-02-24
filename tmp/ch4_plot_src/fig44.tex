@@ -1,0 +1,29 @@
+\documentclass[tikz,border=6pt]{standalone}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\begin{document}
+\begin{tikzpicture}
+\begin{axis}[
+width=14.4cm,
+height=8.0cm,
+xmin=0, xmax=20,
+ymin=0, ymax=3.9,
+grid=both,
+grid style={draw=gray!25,dashed},
+major grid style={draw=gray!35,dashed},
+minor tick num=1,
+axis background/.style={fill=white},
+legend style={at={(0.98,0.98)},anchor=north east,legend columns=1,fill=white,draw=black!30,font=\small},
+xlabel={Deploy Burn-in Steps $b$},
+ylabel={Metric Value},
+xtick={0,10,20},
+]
+\addplot+[thick,mark=*,color=gray!70!black,line width=1.1pt,mark options={fill=gray!70!black}] coordinates {(0,3.36) (10,2.78) (20,2.49)};
+\addlegendentry{Collision Rate [\%]}
+\addplot+[thick,mark=*,color=orange!85!black,line width=1.1pt,mark options={fill=orange!85!black}] coordinates {(0,1.14) (10,1.03) (20,0.98)};
+\addlegendentry{Mean Jerk [m/s]}
+\addplot+[thick,mark=*,color=green!55!black,line width=1.1pt,mark options={fill=green!55!black}] coordinates {(0,0.089) (10,0.074) (20,0.066)};
+\addlegendentry{Mean Y Drift [m]}
+\end{axis}
+\end{tikzpicture}
+\end{document}

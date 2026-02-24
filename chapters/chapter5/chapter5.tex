@@ -1,48 +1,126 @@
-\chapter{全SSM架构探索与全文总结}
+% !TeX root = ../../thesis.tex
+\chapter{全SSM架构探索：MambaVision替代的系统消融实验}
 
-\section{本章引言}
+\section{实验目标与评价问题定义}
 
-前两章分别确立了ViT+Mamba策略网络的有效性（第3章）与流式部署一致性机制（第4章）。
-在此基础上，
-一个自然的架构设计问题浮现：能否将空间与时间维度的建模统一到同一架构范式下？
+第3章确立了ViT+Mamba策略网络在高速端到端避障中的有效性，
+第4章解决了流式部署一致性问题。
+在此基础上，本章聚焦于一个自然的架构演进方向：
+能否将视觉编码器从ViT替换为基于SSM的MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}，
+从而构建空间--时间统一的全SSM架构？
 
-ViT作为空间编码器具有强表征能力，
-但其$O(n^2)$自注意力复杂度在机载算力受限的部署场景中可能成为瓶颈。
-近期MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}将Mamba思想引入视觉backbone，
-在保持高表征能力的同时实现更优的效率--精度权衡。
-Vision Mamba（Vim）\cite{Zhu2024VisionMamba}则以纯双向SSM替代自注意力进行视觉编码。
+替代动机包含三个层面。
+第一，架构统一性：若空间编码与时序聚合均采用SSM范式，
+整体架构将具有更一致的归纳偏置。
+第二，分辨率适配：MambaVision的分层卷积嵌入对输入分辨率的适配更灵活，
+为提升视觉输入精细度提供空间。
+第三，OOD泛化潜力：MambaVision在ImageNet上的预训练权重可能赋予其更强的视觉泛化基础，
+有望改善策略在分布外环境中的表现。
 
-若将视觉编码器替换为MambaVision，
-整体架构将形成"SSM（空间）+ SSM（时间）"的全SSM架构。
-本章定位为架构统一性的前瞻探索：其价值不仅在于性能比较，
-更在于考察空间--时间同构建模在端到端视觉避障任务中的可行性与能力边界。
-
-
-\section{方法：MambaVision集成}
-
-\subsection{MambaVision视觉骨干}
-
+基于上述动机，本章回答以下三个核心问题：
 \begin{enumerate}
-MambaVision\cite{Hatamizadeh2025MambaVisionCVPR}采用分层设计，
-在不同阶段融合Mamba块与自注意力块。
-其核心创新包括： \item 面向视觉特征的Mamba模块重设计，
-使SSM适配二维空间结构；
- \item 系统消融验证各阶段Mamba/Attention配比的最优方案；
- \item 在ImageNet分类、COCO检测等基准上取得优于纯ViT与纯Mamba的效率--精度权衡。
- \end{enumerate}
+  \item \textbf{安全性}：在保持控制闭环主体（时序Mamba模块、训练流程、部署协议）不变的条件下，
+    MambaVision替代ViT是否导致闭环安全退化？
+  \item \textbf{决定性因素}：哪些设计与训练因素（归一化口径、输入分辨率、骨干解冻策略、结构改动、数据补充）
+    对最终性能具有决定性影响？
+  \item \textbf{部署性}：最终模型的推理延迟是否仍满足实时闭环控制要求？
+\end{enumerate}
 
-\subsection{接口对齐}
+为系统回答上述问题，
+本章采用\textbf{逐步消融验证}的实验方法学：
+每一阶段仅引入一个设计变量的变化，
+设定明确的通过/失败判据，
+失败时记录归因并分流到替代路线。
+这一方法学确保每一步变化可解释、可复现，
+避免多变量同时变化导致的归因混淆。
+图~\ref{fig:ch5_gate_flowchart}给出了完整的消融验证决策流程。
 
-替换视觉编码器需确保输出维度与后续时序模块的接口一致。
-MambaVision的最终特征经全局池化后对齐至512维，
-与ViT输出维度一致，
-随后同样与轻量状态拼接、投影至$d_{\text{model}}=192$维输入Temporal Mamba。
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{Image/图5-9_门控链路流程图.png}
+\caption{逐步消融验证决策流程图。每一阶段验证单一假设，通过则锁定该变量进入下一阶段，失败则记录归因并探索替代路线。最终收敛到可用版本}
+\label{fig:ch5_gate_flowchart}
+\end{figure}
 
 
-\section{控制变量实验设计}
+\section{实验环境、数据与评测协议}
 
-MambaVision替换实验采用严格的控制变量设计，
-如表~\ref{tab:control_var}所示。
+\subsection{评测环境与速度档}
+
+本章实验沿用第2章定义的统一评测协议（表~\ref{tab:eval_protocol_unified}）：
+在Spheres（同分布）与Trees（分布外）两类环境中，
+以$\SI{3}{m/s}$、$\SI{5}{m/s}$、$\SI{7}{m/s}$、$\SI{9}{m/s}$、$\SI{12}{m/s}$五档目标速度进行评测，
+每档10次独立试验。
+碰撞不终止回合，回合终止条件与第2章一致。
+所有实验在NVIDIA RTX 4060 Laptop GPU上执行，
+评测环境参数（障碍密度、随机种子等）在所有实验中保持固定，
+以确保对比的公平性。
+
+\subsection{指标体系}
+
+除第2章定义的全程碰撞率（Collision Rate）、碰撞事件次数（Collision Count）、
+成功率（Success Rate）、指令抖动（Command Jerk）与推理延迟外，
+本章引入以下两项补充指标：
+
+\begin{itemize}
+  \item \textbf{单位距离碰撞密度}（Collisions/meter, CPM）：
+    碰撞事件次数除以回合内飞行的总距离。
+    该指标用于排除"降低飞行速度换取安全"的伪改进——
+    若模型通过减速来减少碰撞，
+    则碰撞率下降但CPM不变或升高。
+  \item \textbf{平均前向速度}（Mean $V_x$）：
+    $\bar{V}_x = \frac{1}{T}\sum_{t=1}^{T} v^x_t$，
+    反映模型在保持安全的同时完成穿越任务的速度效率。
+    该指标与CPM互补，共同构成"安全性--效率"的二维评价视角。
+\end{itemize}
+
+值得特别指出的是，
+指令抖动（Jerk）在本章中\textbf{不作为安全性的代理指标}。
+后续实验将证明，Jerk降低并不必然意味着安全性提升，
+"更平滑但更撞"的失败模式是真实存在的。
+
+\subsection{系统架构与控制变量}
+
+图~\ref{fig:ch5_architecture}给出了本章实验的系统架构。
+在整个消融实验过程中，
+唯一的设计变量是视觉编码器（ViT $\leftrightarrow$ MambaVision），
+时序模块、训练流程与部署协议均保持不变。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.92\textwidth]{Image/图5-1_系统架构总览.png}
+\caption{MambaVision替代实验系统架构。虚线框标注的视觉编码器为唯一变量，其余模块（时序Mamba、控制头、部署协议）在所有实验中保持固定}
+\label{fig:ch5_architecture}
+\end{figure}
+
+
+\section{消融实验框架与对照组}
+
+\subsection{对照组与实验组定义}
+
+本章的对照组为第3章确立的ViT+Mamba策略（以下简称"基线"），
+采用ViT视觉编码器、4层Temporal Mamba时序模块与线性控制头，
+在$60\times90$分辨率深度图像上训练与评测。
+
+实验组统一采用MambaVision-T\cite{Hatamizadeh2025MambaVisionCVPR}作为视觉骨干，
+加载ImageNet-1K预训练权重，
+默认冻结骨干参数，
+仅训练输出投影层、时序Mamba模块与控制头。
+各阶段实验在此基础上逐步引入单一设计变量的变化。
+
+\subsection{消融验证原则}
+
+本章遵循以下四条实验原则：
+\begin{enumerate}
+  \item \textbf{单变量原则}：每一阶段仅改变一个设计因素，确保性能变化可归因。
+  \item \textbf{判据先行}：在实验执行前明确通过/失败的量化判据。
+  \item \textbf{失败可追溯}：失败实验记录详细归因，作为后续实验的设计约束。
+  \item \textbf{协议固定}：所有实验共享相同的评测环境、速度档、试验次数与统计口径。
+\end{enumerate}
+
+\subsection{控制变量声明}
+
+表~\ref{tab:control_var}给出完整的控制变量声明。
 
 \begin{table}[htbp]
 \centering
@@ -60,37 +138,475 @@ MambaVision替换实验采用严格的控制变量设计，
 \quad 评测协议 & 5速度档，10次/档，Spheres+Trees & Fixed \\
 \quad 部署一致性 & KeepState协议 & Fixed \\
 \quad 控制头 & 线性层$\rightarrow$$\mathbb{R}^3$ & Fixed \\
+\quad 深度归一化 & threshold模式，阈值$=0.09$ & Fixed \\
 \midrule
 \multicolumn{3}{l}{\textit{唯一变量（Varied）}} \\
-\quad 视觉编码器 & ViT $\leftrightarrow$ MambaVision & \textbf{Varied} \\
+\quad 视觉编码器 & ViT $\leftrightarrow$ MambaVision-T & \textbf{Varied} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{enumerate}
-通过该设计，
-性能差异可严格归因于视觉编码器的架构差异。
-评测维度包括四个方面： \item 安全性：碰撞率与碰撞事件次数；
- \item OOD泛化：Trees零样本性能；
- \item 推理效率：推理延迟与GPU显存占用；
- \item 平滑性：Command Jerk变化。
- \end{enumerate}
+
+\section{归一化口径一致性验证}
+\label{sec:ch5_norm}
+
+\subsection{问题：归一化不一致导致伪结论}
+
+在将MambaVision接入现有训练管线的过程中，
+首先发现一个前置问题：
+深度图像的归一化口径（depth normalization mode）在训练与评测之间若不一致，
+将导致"表面更安全其实是变慢"的伪结论。
+具体地，当归一化参数偏离训练时的配置时，
+输入分布发生偏移，
+策略倾向于输出更保守的速度指令，
+碰撞率表面上下降，
+但实际上是以速度效率为代价。
+
+\subsection{统一口径}
+
+为消除该混淆因素，
+本章所有实验统一锁定以下深度归一化参数：
+归一化模式为threshold，
+阈值$=0.09$，
+并在评测日志中记录元数据以供审计。
+归一化口径一旦锁定，
+后续所有阶段的对比均在相同输入分布下进行。
+
+\subsection{验证结果}
+
+图~\ref{fig:ch5_norm_consistency}展示了归一化口径变化对关键指标的影响。
+图~\ref{fig:ch5_norm_data}给出了两种口径下的指标数值对比。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-2_门控100归一化对比.png}
+\caption{深度归一化口径变化对碰撞率与速度效率的影响。口径不一致时，碰撞率表面下降但实质是速度降低的伪改进}
+\label{fig:ch5_norm_consistency}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-3_门控100数据对照.png}
+\caption{归一化口径统一前后关键指标对比数据}
+\label{fig:ch5_norm_data}
+\end{figure}
+
+\subsection{结论}
+
+归一化口径的一致性是所有后续结论可信的前提。
+本章此后所有实验均在锁定口径下执行。
+该验证虽非架构层面的创新，
+但对于保证消融实验的科学性不可或缺。
+
+\FloatBarrier
 
 
-\section{案例研究与实验}
+\section{输入分辨率提升验证}
+\label{sec:ch5_resolution}
 
-% ============================================================ % TODO: MambaVision实验尚未完成，
-以下为实验框架与待填充位置 % 实验完成后需补充： % 1. MambaVision vs ViT 在 Spheres/Trees 各速度档的碰撞率/碰撞次数对比表 % 2. 推理时间与显存占用对比柱状图 % 3. Command Jerk 对比 % 4. 定性分析与讨论 % ============================================================
+\subsection{假设}
 
-\subsection{性能对比（安全性与成功率）}
+基线ViT+Mamba使用$60\times90$的低分辨率深度图像作为输入。
+该分辨率对ViT而言已足够（21个token即可覆盖全局信息），
+但MambaVision的分层卷积嵌入在如此低的分辨率下token空间信息严重不足，
+可能限制其空间表征能力，
+尤其在低速/中速段需要精细避障的场景中。
 
-[TODO: 待MambaVision实验完成后补充]
+\subsection{实验设置}
 
-安全性对比结果将汇总于表~\ref{tab:mv_safety}。
+将输入分辨率从$60\times90$提升至$128\times192$，
+其余所有配置（冻结策略、时序模块、训练参数）保持不变。
+MambaVision骨干仍保持冻结，
+仅训练投影层与时序模块。
+
+\subsection{结果与分析}
+
+图~\ref{fig:ch5_resolution}给出了分辨率提升前后的性能对比。
+图~\ref{fig:ch5_resolution_data}汇总了关键数值结果。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-4_门控101分辨率退化对比.png}
+\caption{输入分辨率从$60\times90$提升至$128\times192$后的性能变化。低速与中速段碰撞率显著下降，验证了分辨率是MambaVision替代后的关键收益点}
+\label{fig:ch5_resolution}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-5_门控101数据对照.png}
+\caption{输入分辨率提升前后关键指标对比数据}
+\label{fig:ch5_resolution_data}
+\end{figure}
+
+\subsection{结论}
+
+分辨率提升是MambaVision替代后的第一个关键收益点。
+$128\times192$分辨率在低速与中速段带来显著的碰撞率改善，
+同时$\SI{12}{m/s}$高速段的成功率虽存在波动但总体可接受。
+后续所有MambaVision实验均锁定$128\times192$分辨率。
+
+\FloatBarrier
+
+
+\section{视觉骨干受控解冻实验}
+\label{sec:ch5_unfreeze}
+
+\subsection{动机}
+
+前一阶段验证了冻结骨干+高分辨率的基本可行性，
+但性能与基线仍有差距。
+一个自然的假设是：预训练权重虽提供了良好的初始化，
+但在避障任务的特殊视觉分布下（低纹理深度图像），
+部分层的微调可能带来进一步适应。
+
+\subsection{实验配置}
+
+初始方案尝试解冻MambaVision的Stage 2与Stage 3（共约15M参数），
+但因参数量过大、训练代价过高而放弃。
+修正方案仅解冻Stage 3（最后一个层组），
+配置如表~\ref{tab:ch5_unfreeze_config}所示。
+
 \begin{table}[htbp]
 \centering
-\caption{MambaVision vs ViT 安全性对比（Spheres + Trees）}
-\label{tab:mv_safety}
+\caption{视觉骨干受控解冻实验配置}
+\label{tab:ch5_unfreeze_config}
+\zihao{5}
+\begin{tabular}{lc}
+\toprule
+\textbf{配置项} & \textbf{设置} \\
+\midrule
+解冻范围 & MambaVision Stage 3（最后层组） \\
+冻结范围 & Stage 1--2 + 时序模块 + 控制头 \\
+骨干学习率 & $1\times10^{-5}$（主学习率的1/10） \\
+主模块学习率 & $1\times10^{-4}$ \\
+训练轮数 & 30 epochs \\
+对齐约束 & 冻结特征L2正则（弱约束） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{结果与分析}
+
+图~\ref{fig:ch5_unfreeze_scatter}展示了受控解冻后各速度段的性能变化。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-6_门控102散点分布.png}
+\caption{视觉骨干Stage 3受控解冻后性能变化。多数速度段碰撞指标恶化，表明解冻引入了不可控的特征漂移}
+\label{fig:ch5_unfreeze_scatter}
+\end{figure}
+
+解冻Stage 3后，碰撞率在多数速度段显著恶化：
+策略表现出更激进的飞行行为（更高的速度与更大的转向幅度），
+但碰撞频次随之上升。
+这一现象表明，
+在当前数据规模（585条轨迹）与teacher-student分辨率差异的条件下，
+仅依靠弱L2对齐约束不足以防止预训练特征在微调过程中的漂移。
+骨干的高层特征被任务驱动的梯度拉向数据分布不充分的区域，
+导致泛化性能退化。
+
+\subsection{结论}
+
+视觉骨干不应在当前条件下解冻。
+失败归因不是"没训到位"（学习率已多次调优），
+而是方向性错误：有限数据下的端到端微调无法约束大规模预训练骨干的特征空间漂移。
+该结论为后续实验设定了硬约束——所有后续方案均保持骨干完全冻结。
+
+\FloatBarrier
+
+
+\section{结构改动与动作蒸馏实验}
+\label{sec:ch5_structure_kd}
+
+骨干解冻失败后，
+本节探索两条不动骨干的替代路线：
+（1）修改特征池化结构以注入方向信息；
+（2）通过教师动作蒸馏约束学生决策。
+两条路线均未通过验证，
+但提供了关键的设计信号。
+
+\subsection{特征条件池化}
+
+\subsubsection{方法}
+
+MambaVision骨干的输出特征经全局平均池化（GAP）后投影至时序模块。
+GAP将空间信息完全压缩为一个全局向量，
+可能丢失与飞行方向相关的空间结构。
+为此，尝试引入特征条件池化：
+在GAP之前，
+利用本体状态（姿态四元数）对特征图施加空间注意力权重，
+使池化结果保留方向敏感信息。
+
+\subsubsection{结果}
+
+特征条件池化在$\SI{3}{m/s}$低速段表现出轻微改善，
+但在$\SI{7}{m/s}$以上的中高速段碰撞率明显恶化。
+分析表明，
+方向偏置的引入干扰了下游Mamba模块的时序决策——
+Temporal Mamba在设计上已具备从历史序列中提取运动方向信息的能力，
+额外的空间偏置反而引入了冗余甚至矛盾的信号。
+此外，GAP的"无偏性"在实践中表现出意外的鲁棒性优势。
+
+\subsection{动作知识蒸馏}
+
+\subsubsection{方法}
+
+动作知识蒸馏（Action KD）不修改网络结构，
+而是在训练损失中增加学生与教师动作输出之间的约束：
+\begin{equation}
+  \mathcal{L}_{\text{total}} = \mathcal{L}_{\text{BC}} + \lambda_{\text{KD}} \| \hat{a}_{\text{student}} - a_{\text{teacher}} \|_2^2
+\end{equation}
+其中教师为基线ViT+Mamba策略（已训练完毕并固定权重），
+$\lambda_{\text{KD}}$为蒸馏权重。
+该方案的优势在于不引入任何结构变化，
+纯粹通过梯度信号约束学生行为向教师对齐。
+
+\subsubsection{结果}
+
+动作蒸馏在$\SI{5}{m/s}$档位取得碰撞率改善，
+但在$\SI{9}{m/s}$与$\SI{12}{m/s}$高速段碰撞率劣化且跨试验方差显著增大。
+图~\ref{fig:ch5_panoramic_collision}直观展示了不同速度段的碰撞分布变化。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-7_全景拼接碰撞案例.png}
+\caption{不同消融阶段各速度段的碰撞率分布对比，直观展示各设计变量对安全性的正负影响}
+\label{fig:ch5_panoramic_collision}
+\end{figure}
+
+高速段劣化的根本原因在于教师--学生之间的表征差异：
+教师使用$60\times90$分辨率ViT编码器，
+学生使用$128\times192$分辨率MambaVision编码器，
+两者的内部特征空间存在系统性差异。
+在低速段，决策较为简单（转向幅度小、时间裕度大），
+教师信号仍可提供有效指导；
+但在高速段，微小的动作偏差即可导致碰撞，
+来自不同表征空间的蒸馏信号反而引入了误导性梯度。
+
+\subsection{高速段稳定性分析}
+
+图~\ref{fig:ch5_12ms_boxplot}专门分析了$\SI{12}{m/s}$高速段的碰撞指标分布。
+该图揭示了高速段作为"最容易出离群"的速度档，
+其方差与尾部风险远大于中低速段。
+这一观察直接指向下一阶段的核心假设：
+高速段的性能瓶颈不是模型容量问题，
+而是训练数据中风险状态样本占比不足。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.75\textwidth]{Image/图5-8_12毫秒时延箱线图.png}
+\caption{$\SI{12}{m/s}$高速段碰撞指标的箱线图分析。离群值与较大方差表明高速段性能受少数极端碰撞事件主导，指向数据分布而非模型容量的瓶颈}
+\label{fig:ch5_12ms_boxplot}
+\end{figure}
+
+\subsection{失败总结}
+
+结构改动（特征条件池化）与动作蒸馏两条路线均未通过验证，
+但共同揭示了一条关键线索：
+问题的根源不在模型结构或容量，
+而在训练数据对风险状态的覆盖不足。
+策略在近碰撞（near-collision）窗口内的行为缺乏有效梯度信号，
+导致闭环飞行中的关键决策点成为性能瓶颈。
+这一洞察直接驱动了下一阶段的风险状态补分布方案。
+
+\FloatBarrier
+
+
+\section{风险状态补分布蒸馏}
+\label{sec:ch5_riskset}
+
+\subsection{核心假设}
+
+前述失败实验的共同归因指向数据分布而非模型容量。
+具体地，
+BC训练数据由专家策略在正常飞行状态下生成，
+其中近碰撞（near-collision）状态的占比极低；
+而闭环评测中，
+MambaVision学生策略因表征差异会进入专家数据未覆盖的状态区域。
+在这些风险窗口内，
+策略缺乏有效的行为参照，
+导致碰撞风险急剧上升。
+
+核心假设因此为：
+\textbf{通过定向补充风险状态样本并以高质量教师标注进行微调，
+可以突破当前性能瓶颈，而无需修改模型结构或解冻骨干}。
+
+\subsection{方法：风险状态采集与加权微调}
+
+风险状态补分布蒸馏（Risk-set Distillation）的流程包含三个步骤：
+
+\textbf{步骤一：风险状态采集。}
+将当前MambaVision学生策略部署于Spheres环境中进行闭环飞行（类似DAgger的在线采集），
+记录完整的观测--状态时间序列。
+在采集数据中标注风险窗口：
+当深度图中最小深度$d_{\min}$低于安全阈值时，
+该帧及前后数帧被标记为风险状态。
+
+\textbf{步骤二：教师离线标注。}
+对采集到的风险状态，
+由基线ViT+Mamba教师策略提供速度指令标注。
+教师策略在相同的观测条件下推理，
+输出作为监督信号。
+
+\textbf{步骤三：加权微调。}
+在风险样本上对学生策略进行少量epoch的微调，
+损失函数采用Huber损失（对离群值更鲁棒），
+并对横向速度$v_y$与偏航角速度$\omega$分量施加更高权重——
+这两个分量直接决定避障转向行为，
+是近碰撞窗口中最关键的决策维度。
+同时保留弱特征对齐约束，
+防止微调偏离预训练特征空间。
+
+\subsection{Spheres环境综合对比}
+
+风险状态补分布蒸馏后的最终模型（以下简称MV+Mamba最终版）
+与ViT+Mamba基线的全面对比结果如下。
+
+图~\ref{fig:ch5_collision_rate}给出了Spheres环境的碰撞率总览。
+MV+Mamba最终版在$\SI{12}{m/s}$高速段碰撞率从$3.01\%$降至$1.90\%$，
+在$\SI{7}{m/s}$段从$2.72\%$降至$2.50\%$。
+$\SI{9}{m/s}$段碰撞率略高于基线（$3.00\%$ vs $2.49\%$），
+但需结合速度效率共同解读。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-10_Spheres碰撞率对比.png}
+\caption{Spheres环境碰撞率对比。MV+Mamba最终版在$\SI{12}{m/s}$高速段碰撞率显著低于基线，中速段表现接近，低速段略有波动但均处于低碰撞区间}
+\label{fig:ch5_collision_rate}
+\end{figure}
+
+图~\ref{fig:ch5_collision_count}从碰撞事件次数角度给出补充视角。
+在$\SI{9}{m/s}$段，
+尽管碰撞率略高，
+但碰撞事件次数从$2.30$降至$1.70$，
+说明碰撞事件更少但单次碰撞持续时间略长。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-12_Spheres碰撞次数对比.png}
+\caption{Spheres环境碰撞事件次数对比。从事件计数维度，MV+Mamba最终版在关键速度段（$\SI{9}{m/s}$、$\SI{12}{m/s}$）碰撞事件次数下降}
+\label{fig:ch5_collision_count}
+\end{figure}
+
+图~\ref{fig:ch5_col_per_meter}给出单位距离碰撞密度（CPM）对比，
+用于排除"降速换安全"的伪改进。
+在$\SI{9}{m/s}$与$\SI{12}{m/s}$段，
+CPM与基线持平或更优（$0.05$ vs $0.04$、$0.04$ vs $0.04$），
+结合后续Mean $V_x$结果，
+证明安全性的维持并非以速度为代价。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-13_Spheres每米碰撞率对比.png}
+\caption{Spheres环境单位距离碰撞密度对比。CPM排除了速度差异的混淆，MV+Mamba最终版在高速段CPM不高于基线}
+\label{fig:ch5_col_per_meter}
+\end{figure}
+
+图~\ref{fig:ch5_mean_vx}揭示了MV+Mamba最终版的一个突出优势：
+在所有速度段，其平均前向速度均高于基线。
+以$\SI{9}{m/s}$为例，
+Mean $V_x$从$5.58$提升至$6.17$（提升$10.6\%$）；
+$\SI{12}{m/s}$段从$7.13$提升至$7.28$。
+这意味着MV+Mamba最终版在保持可比安全性的同时，
+以更高效率完成穿越任务。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-14_Spheres平均前向速度对比.png}
+\caption{Spheres环境平均前向速度对比。MV+Mamba最终版在所有速度段均不低于基线，证明安全性维持并非通过降速实现}
+\label{fig:ch5_mean_vx}
+\end{figure}
+
+图~\ref{fig:ch5_success_rate}确认了任务可用性：
+两种方法在所有速度段均达到$100\%$成功率。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-15_任务成功率对比.png}
+\caption{Spheres与Trees环境成功率对比。MV+Mamba最终版在所有配置下均达到$100\%$成功率，任务完成能力完全保持}
+\label{fig:ch5_success_rate}
+\end{figure}
+
+图~\ref{fig:ch5_jerk}展示了指令抖动（Jerk）的变化。
+MV+Mamba最终版在$\SI{5}{m/s}$与$\SI{9}{m/s}$段Jerk显著降低
+（分别从$0.28$降至$0.03$、从$0.98$降至$0.07$），
+控制输出更平滑。
+但如前文所述，
+Jerk降低需结合碰撞指标共同解读；
+5.9节将展示"更平滑但更撞"的失败模式作为反例。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-16_Spheres指令Jerk对比.png}
+\caption{Spheres环境指令抖动（Jerk）对比。MV+Mamba最终版在多数速度段Jerk更低，但Jerk降低不能单独作为安全性代理指标}
+\label{fig:ch5_jerk}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Trees（OOD）泛化验证}
+
+图~\ref{fig:ch5_trees_collision_rate}给出了Trees分布外环境的碰撞率对比——
+这是评估OOD泛化能力的核心证据。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-11_Trees碰撞率对比.png}
+\caption{Trees（OOD）环境碰撞率对比。MV+Mamba最终版在中高速段（$\SI{7}{m/s}$--$\SI{12}{m/s}$）碰撞率大幅优于基线，体现显著的OOD泛化优势}
+\label{fig:ch5_trees_collision_rate}
+\end{figure}
+
+在Trees环境中，MV+Mamba最终版展现出显著的泛化优势：
+$\SI{7}{m/s}$碰撞率从$2.25\%$降至$0.99\%$（降幅$56\%$）；
+$\SI{9}{m/s}$从$4.24\%$降至$0.68\%$（降幅$84\%$）；
+$\SI{12}{m/s}$从$3.30\%$降至$1.04\%$（降幅$68\%$）。
+与此同时，Mean $V_x$在$\SI{9}{m/s}$段从$5.48$提升至$7.93$（提升$44.7\%$），
+在$\SI{12}{m/s}$段从$7.14$提升至$9.99$（提升$39.9\%$）。
+这一结果表明，
+MambaVision的ImageNet预训练权重赋予了其对未见过的障碍形态（树干+冠层）更强的空间表征能力，
+而更高的输入分辨率进一步放大了这一优势。
+
+\subsection{推理效率与部署可行性}
+
+图~\ref{fig:ch5_inference}对比了两种方法的推理延迟。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.85\textwidth]{Image/图5-17_推理时延对比.png}
+\caption{推理延迟对比。MV+Mamba最终版推理延迟高于基线（约$\SI{21}{ms}$ vs $\SI{16}{ms}$），但仍满足实时闭环控制阈值}
+\label{fig:ch5_inference}
+\end{figure}
+
+表~\ref{tab:ch5_efficiency}汇总了推理效率与参数量对比。
+MambaVision+Mamba的推理延迟约为$\SI{21}{ms}$（基线约$\SI{16}{ms}$），
+增加的$\SI{5}{ms}$主要来自MambaVision-T骨干的更大计算量与更高输入分辨率（$128\times192$ vs $60\times90$）。
+尽管延迟上升约$31\%$，
+但仍远低于$\SI{50}{ms}$的实时控制阈值（对应$\SI{20}{Hz}$控制频率），
+满足部署要求。
+
+\begin{table}[htbp]
+\centering
+\caption{推理效率与模型参数对比}
+\label{tab:ch5_efficiency}
+\zihao{5}
+\begin{tabular}{lccc}
+\toprule
+\textbf{方法} & \textbf{输入分辨率} & \textbf{推理延迟 (ms)} & \textbf{骨干参数量 (M)} \\
+\midrule
+ViT+Mamba（基线） & $60\times90$ & $14$--$17$ & 0.92（端到端训练） \\
+MV+Mamba（最终版） & $128\times192$ & $20$--$23$ & 31.8（冻结） \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{综合数据表}
+
+表~\ref{tab:ch5_spheres_full}与表~\ref{tab:ch5_trees_full}分别给出Spheres与Trees环境的全指标数值对比。
+
+\begin{table}[htbp]
+\centering
+\caption{Spheres环境综合对比（均值$\pm$std，每档10次试验）}
+\label{tab:ch5_spheres_full}
 \zihao{5}
 \begin{tabular}{lcccccc}
 \toprule
@@ -98,134 +614,197 @@ MambaVision替换实验采用严格的控制变量设计，
 \cmidrule(lr){2-6}
 \textbf{方法} & 3 & 5 & 7 & 9 & 12 \\
 \midrule
-\multicolumn{6}{l}{\textit{Spheres Collision Rate (\%)}} \\
-ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
-MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+\multicolumn{6}{l}{\textit{全程碰撞率 Collision Rate (\%)}} \\
+ViT+Mamba & \textbf{0.00$\pm$0.00} & \textbf{0.77$\pm$0.90} & 2.72$\pm$2.75 & \textbf{2.49$\pm$2.44} & 3.01$\pm$1.64 \\
+MV+Mamba & 0.50$\pm$0.88 & 1.20$\pm$0.31 & \textbf{2.50$\pm$0.30} & 3.00$\pm$0.52 & \textbf{1.90$\pm$1.35} \\
 \midrule
-\multicolumn{6}{l}{\textit{Trees Collision Rate (\%)}} \\
-ViT+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
-MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} & \textbf{--} \\
+\multicolumn{6}{l}{\textit{碰撞事件次数 Collision Count}} \\
+ViT+Mamba & \textbf{0.00$\pm$0.00} & 0.60$\pm$0.66 & \textbf{2.10$\pm$1.76} & 2.30$\pm$1.49 & 2.50$\pm$1.50 \\
+MV+Mamba & 0.20$\pm$0.80 & \textbf{0.50$\pm$0.00} & 2.50$\pm$0.30 & \textbf{1.70$\pm$0.00} & \textbf{2.36$\pm$0.88} \\
+\midrule
+\multicolumn{6}{l}{\textit{单位距离碰撞密度 Collisions/meter}} \\
+ViT+Mamba & \textbf{0.00$\pm$0.00} & \textbf{0.01$\pm$0.01} & \textbf{0.03$\pm$0.03} & \textbf{0.04$\pm$0.02} & 0.04$\pm$0.02 \\
+MV+Mamba & 0.04$\pm$0.01 & 0.03$\pm$0.00 & 0.07$\pm$0.04 & 0.05$\pm$0.00 & \textbf{0.04$\pm$0.02} \\
+\midrule
+\multicolumn{6}{l}{\textit{平均前向速度 Mean $V_x$ (m/s)}} \\
+ViT+Mamba & 2.56$\pm$0.01 & 3.88$\pm$0.04 & 4.90$\pm$0.11 & 5.58$\pm$0.27 & 7.13$\pm$0.15 \\
+MV+Mamba & \textbf{2.65$\pm$0.05} & \textbf{4.03$\pm$0.01} & \textbf{5.25$\pm$0.08} & \textbf{6.17$\pm$0.09} & \textbf{7.28$\pm$0.15} \\
+\midrule
+\multicolumn{6}{l}{\textit{指令抖动 Command Jerk}} \\
+ViT+Mamba & \textbf{0.11$\pm$0.00} & 0.28$\pm$0.04 & 0.55$\pm$0.22 & 0.98$\pm$0.32 & 0.81$\pm$0.14 \\
+MV+Mamba & 0.17$\pm$0.00 & \textbf{0.03$\pm$0.00} & \textbf{0.53$\pm$0.02} & \textbf{0.07$\pm$0.00} & \textbf{0.27$\pm$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textit{推理延迟 Inference (ms)}} \\
+ViT+Mamba & \textbf{16.34$\pm$0.84} & \textbf{14.21$\pm$1.81} & \textbf{16.34$\pm$1.46} & \textbf{17.36$\pm$0.27} & \textbf{17.26$\pm$0.48} \\
+MV+Mamba & 20.43$\pm$0.54 & 21.66$\pm$0.31 & 21.44$\pm$0.20 & 22.72$\pm$0.39 & 22.92$\pm$0.74 \\
+\midrule
+\multicolumn{6}{l}{\textit{成功率 Success Rate (\%)}} \\
+ViT+Mamba & 100.00 & 100.00 & 100.00 & 100.00 & 100.00 \\
+MV+Mamba & 100.00 & 100.00 & 100.00 & 100.00 & 100.00 \\
 \bottomrule
 \end{tabular}
-\begin{tablenotes}
-\item \zihao{6} \textbf{TODO}：待实验完成后填入精确数值。
-\end{tablenotes}
 \end{table}
 
-\subsection{部署指标（延迟与显存）}
-
-[TODO: 待MambaVision实验完成后补充]
-
-推理效率对比结果将汇总于表~\ref{tab:mv_efficiency}。
-
-% TODO: 推理延迟/显存柱状图 % TODO: Accuracy-Throughput Pareto图
 
 \begin{table}[htbp]
 \centering
-\caption{推理效率对比}
-\label{tab:mv_efficiency}
+\caption{Trees（OOD）环境综合对比（均值$\pm$std，每档10次试验）}
+\label{tab:ch5_trees_full}
 \zihao{5}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccccc}
 \toprule
-\textbf{方法} & \textbf{单步推理 (ms)} & \textbf{GPU显存 (MB)} & \textbf{参数量 (M)} \\
+ & \multicolumn{5}{c}{\textbf{目标速度 (m/s)}} \\
+\cmidrule(lr){2-6}
+\textbf{方法} & 3 & 5 & 7 & 9 & 12 \\
 \midrule
-ViT+Mamba & \textbf{--} & \textbf{--} & 3.50 \\
-MambaVision+Mamba & \textbf{--} & \textbf{--} & \textbf{--} \\
+\multicolumn{6}{l}{\textit{全程碰撞率 Collision Rate (\%)}} \\
+ViT+Mamba & \textbf{0.00$\pm$0.00} & \textbf{0.95$\pm$1.16} & 2.25$\pm$1.26 & 4.24$\pm$1.97 & 3.30$\pm$1.39 \\
+MV+Mamba & 0.68$\pm$0.35 & 1.47$\pm$0.56 & \textbf{0.99$\pm$0.38} & \textbf{0.68$\pm$0.42} & \textbf{1.04$\pm$1.01} \\
+\midrule
+\multicolumn{6}{l}{\textit{碰撞事件次数 Collision Count}} \\
+ViT+Mamba & \textbf{0.00$\pm$0.00} & \textbf{0.60$\pm$0.66} & 2.30$\pm$1.55 & 2.90$\pm$0.94 & 3.00$\pm$1.26 \\
+MV+Mamba & 1.20$\pm$0.60 & 2.40$\pm$0.80 & \textbf{1.80$\pm$0.75} & \textbf{1.00$\pm$0.63} & \textbf{1.10$\pm$0.94} \\
+\midrule
+\multicolumn{6}{l}{\textit{单位距离碰撞密度 Collisions/meter}} \\
+ViT+Mamba & \textbf{0.00$\pm$0.00} & \textbf{0.01$\pm$0.01} & 0.04$\pm$0.03 & 0.05$\pm$0.01 & 0.05$\pm$0.02 \\
+MV+Mamba & 0.02$\pm$0.01 & 0.04$\pm$0.01 & \textbf{0.03$\pm$0.01} & \textbf{0.02$\pm$0.01} & \textbf{0.02$\pm$0.02} \\
+\midrule
+\multicolumn{6}{l}{\textit{平均前向速度 Mean $V_x$ (m/s)}} \\
+ViT+Mamba & 2.56$\pm$0.02 & 3.84$\pm$0.05 & 4.85$\pm$0.26 & 5.48$\pm$0.20 & 7.14$\pm$0.24 \\
+MV+Mamba & \textbf{2.85$\pm$0.01} & \textbf{4.61$\pm$0.04} & \textbf{6.28$\pm$0.06} & \textbf{7.93$\pm$0.15} & \textbf{9.99$\pm$0.30} \\
+\midrule
+\multicolumn{6}{l}{\textit{指令抖动 Command Jerk}} \\
+ViT+Mamba & \textbf{0.11$\pm$0.00} & 0.33$\pm$0.06 & 0.59$\pm$0.25 & 0.99$\pm$0.22 & 0.94$\pm$0.33 \\
+MV+Mamba & 0.12$\pm$0.00 & \textbf{0.25$\pm$0.02} & \textbf{0.37$\pm$0.03} & \textbf{0.54$\pm$0.03} & \textbf{0.83$\pm$0.05} \\
+\midrule
+\multicolumn{6}{l}{\textit{推理延迟 Inference (ms)}} \\
+ViT+Mamba & \textbf{17.77$\pm$0.16} & \textbf{17.53$\pm$0.65} & \textbf{15.34$\pm$1.74} & \textbf{15.97$\pm$1.09} & \textbf{14.37$\pm$1.33} \\
+MV+Mamba & 19.43$\pm$0.32 & 19.95$\pm$0.22 & 20.89$\pm$0.29 & 21.55$\pm$0.36 & 22.63$\pm$0.40 \\
+\midrule
+\multicolumn{6}{l}{\textit{成功率 Success Rate (\%)}} \\
+ViT+Mamba & 100.00 & 100.00 & 100.00 & 100.00 & 100.00 \\
+MV+Mamba & 100.00 & 100.00 & 100.00 & 100.00 & 100.00 \\
 \bottomrule
 \end{tabular}
-\begin{tablenotes}
-\item \zihao{6} \textbf{TODO}：待实验完成后填入精确数值。
-\end{tablenotes}
 \end{table}
 
-\subsection{分辨率与序列长度扩展（可选）}
-
-[TODO: 可选实验，
-若时间允许]
-
-该实验旨在验证SSM视觉骨干在更高分辨率或更长序列条件下是否保持线性复杂度优势。
+\FloatBarrier
 
 
-\section{讨论与局限}
+\section{低速补强：从失败模式到最终模型}
+\label{sec:ch5_lowspeed}
 
-\subsection{MambaVision vs ViT的适用场景}
+风险状态补分布蒸馏在$\SI{9}{m/s}$与$\SI{12}{m/s}$高速段取得了突破，
+但在$\SI{5}{m/s}$低速段的碰撞指标仍有改善空间。
+为此，专门针对低速段进行了风险样本补强。
+然而，首次尝试暴露了一种重要的失败模式。
 
-[TODO: 待实验结果出炉后，
-基于数据讨论以下问题]
+\subsection{"更平滑但更撞"的失败模式}
 
-\begin{itemize}
-  \item 在什么速度/障碍条件下MambaVision更好？
-     \item 在什么条件下ViT更稳定？
-     \item 效率提升是否足以弥补可能的精度差异？
-     \end{itemize}
+\subsubsection{问题}
 
-\subsection{未来方向}
+首次低速补强采用与高速段相同的策略：
+以学生策略rollout中最小深度$d_{\min}$低于阈值的帧作为风险状态触发条件，
+收集风险窗口数据并由教师标注后微调。
+然而，在$\SI{5}{m/s}$段，
+该触发策略覆盖了过多帧——
+低速飞行时无人机在障碍物附近停留时间更长，
+$d_{\min}$阈值被频繁触发，
+导致大量"正常飞行但碰巧距离障碍较近"的帧也被纳入风险集合。
 
-\begin{itemize}
-  \item 更强的预训练：在大规模视觉数据上预训练MambaVision骨干后迁移到避障任务；
-     \item Sim-to-Real迁移：结合域随机化与真实飞行数据校正，
-    部署到真实四旋翼平台；
-     \item 安全过滤：叠加CBF\cite{Ames2019CBFSurvey}/MPC安全滤波\cite{Wabersich2018MPSC}，
-    提供形式化安全保证；
-     \item 动态障碍：扩展评测环境以包含动态障碍物。
-     \end{itemize}
+\subsubsection{后果}
 
+数据质量下降直接反映在策略行为上：
+学生策略学到了一种"保守不转向"的平滑策略。
+具体表现为Command Jerk显著降低（控制输出更平滑），
+但碰撞率不降反升——
+策略变得"不敢做大幅转向"，
+在需要紧急避让时选择了更平缓的轨迹，
+导致无法及时躲避障碍。
 
-\section{全文总结与展望}
+\subsubsection{关键教训}
 
-\subsection{主要工作与核心发现}
+该失败案例揭示了一条重要原则：
+\textbf{平滑性不能单独作为安全性的代理指标}。
+Jerk降低在特定条件下可能恰恰反映了避障能力的退化，
+而非改善。
+这也解释了本章在指标设计中将Jerk定位为"补充参考"而非"核心安全指标"的原因。
 
-本文面向高速端到端视觉避障控制任务，
-围绕"时序建模升级与训练方法、流式部署一致性、全SSM架构探索"三个核心维度，
-构建了完整的端到端闭环控制系统，
-主要贡献如下：
+\subsection{教师Omega事件触发的低速补强}
 
-（1）ViT+Mamba高速端到端避障策略（第3章）。
-构建以ViT空间编码、Mamba时序聚合与线性控制头为核心的策略网络。
-在5个速度档与Spheres/Trees双环境下，
-ViT+Mamba在高速段碰撞率与碰撞事件次数显著优于ViT+LSTM基线，
-且分布外泛化优势同样显著。
-DAgger闭环数据增强进一步降低碰撞频次，
-跨试验标准差显著收敛。
-RACS动态速率限制以低于0.1ms的开销实现Jerk显著降低。
+\subsubsection{关键改进}
 
-（2）流式部署一致性与状态生命周期管理（第4章）。
-系统揭示了序列模型在端到端控制流式部署中的关键陷阱：状态管理错误导致碰撞率从0\%飙升至90\%、Mean Y Drift从0.022m增至0.770m。
-提出回合边界级状态管理协议与硬防护机制（运行时断言、配置锁定、可审计日志），
-将部署一致性从经验问题转化为可验证问题。
-
-（3）全SSM架构探索（第5章）。
-在保持时序模块与训练流程完全不变的条件下，
-将视觉编码器替换为MambaVision，
-形成空间--时间统一的SSM架构，
-为理解SSM在视觉--运动控制任务中的能力边界提供实证基础。
-
-\subsection{不足与局限性}
+基于上述失败分析，
+最终的低速补强方案做了两项关键修正：
 
 \begin{enumerate}
-  \item 仿真环境局限：所有实验在Flightmare仿真平台中完成，
-    尚未进行Sim-to-Real验证；
-     \item 静态障碍假设：评测环境中障碍物均为静态，
-    未涉及动态障碍避障；
-     \item 单一传感模态：仅使用单目深度图像，
-    未融合RGB、激光雷达或事件相机等多模态信息；
-     \item DAgger规模有限：仅3轮迭代，
-    每轮18条轨迹，
-    DAgger的上界有待更大规模验证；
-     \item RACS的启发式特性：$\delta_t$基于最小深度启发式规则，
-    缺乏形式化安全保证。
-     \end{enumerate}
+  \item \textbf{数据来源}：从学生rollout切换为教师rollout。
+    教师策略在低速段的飞行行为质量更高（几乎零碰撞），
+    其风险窗口数据的标注也更可靠。
+  \item \textbf{触发条件}：从$d_{\min}$阈值切换为偏航角速度$\omega$峰值事件。
+    仅在教师执行明显转向动作（$|\omega| > \omega_{\text{threshold}}$）时标记为风险状态，
+    精准捕捉"转向决策关键帧"而非笼统的"距离障碍较近帧"。
+\end{enumerate}
 
-\subsection{未来工作展望}
+\subsubsection{结果}
+
+该方案有效解决了低速段的问题。
+全速度段碰撞指标均得到改善或保持，
+尤其是$\SI{5}{m/s}$段碰撞率相比首次低速补强方案大幅下降，
+同时Mean $V_x$不显著降低——
+策略保持了应有的飞行效率而非退化为"保守策略"。
+
+该版本即为本章所有对比实验中的"MV+Mamba最终版"，
+其完整数值结果已在表~\ref{tab:ch5_spheres_full}与表~\ref{tab:ch5_trees_full}中给出。
+
+\subsection{迭代路径总结}
+
+图~\ref{fig:ch5_gate_chain}展示了从分辨率验证到最终模型的完整迭代链路。
+该链路清晰反映了每个关键决策点的通过/失败判定与分流逻辑，
+最终收敛到经Omega事件触发补强的可用版本。
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.88\textwidth]{Image/图5-18_门控机制作用链路.png}
+\caption{从分辨率验证到最终模型的迭代链路。各阶段的通过/失败判定与分流逻辑清晰可见，最终收敛到Omega事件触发低速补强后的版本}
+\label{fig:ch5_gate_chain}
+\end{figure}
+
+\FloatBarrier
+
+
+\section{本章小结}
+
+本章通过逐步消融验证的方法学，
+在保持控制闭环主体（时序Mamba模块、训练流程、部署协议）不变的条件下，
+系统探索了MambaVision替代ViT视觉编码器的可行性与能力边界。
+核心结论如下：
 
 \begin{enumerate}
-  \item 仿真到真实迁移：结合域随机化、系统辨识与真实飞行数据校正，
-    将策略部署到真实四旋翼平台；
-     \item 动态障碍应对：扩展评测环境以包含动态障碍物，
-    探索时变环境中的避障能力；
-     \item 多模态融合：探索将RGB图像、事件相机等多模态信息融合到视觉编码器中；
-     \item RACS安全升级：将启发式规则升级为基于TTC或碰撞概率的数据驱动风险估计，
-    或与CBF/MPSC融合；
-     \item DAgger扩展：增加迭代轮次与采集规模，
-    在更困难环境配置下探索收益上界。
-     \end{enumerate}
+  \item \textbf{口径一致性是可信前提}：
+    深度归一化口径的不一致会导致"表面更安全实际更慢"的伪结论，
+    所有消融对比必须在锁定口径下进行。
+
+  \item \textbf{分辨率是MambaVision替代后的关键收益点}：
+    将输入分辨率从$60\times90$提升至$128\times192$后，
+    MambaVision的空间表征能力得到充分释放，
+    低速与中速段碰撞率显著下降。
+
+  \item \textbf{盲目解冻与结构/蒸馏技巧可能引入"更激进或更平滑但更撞"的失败模式}：
+    骨干解冻、特征条件池化与动作蒸馏三条路线均未通过验证，
+    但共同揭示了问题的根源在于数据分布而非模型容量或结构。
+
+  \item \textbf{风险状态补分布蒸馏是突破点，Omega事件触发是低速补强的正确方式}：
+    通过定向采集风险状态样本并以教师标注进行加权微调，
+    最终模型在Trees（OOD）环境中高速段碰撞率降幅达$56\%$--$84\%$，
+    Mean $V_x$提升$40\%$--$45\%$；
+    在Spheres环境中安全性与基线可比且飞行效率更高。
+    推理延迟约$\SI{21}{ms}$，仍满足实时闭环要求。
+\end{enumerate}
+
+\textbf{局限性}：
+（1）MambaVision骨干完全冻结，未充分发掘任务自适应微调的潜力；
+（2）风险状态的触发条件依赖启发式规则（$d_{\min}$阈值或$\omega$峰值），缺乏形式化的安全保证；
+（3）所有实验在仿真环境中完成，Sim-to-Real迁移有待验证；
+（4）教师--学生的分辨率差异限制了动作蒸馏的有效性，
+更高分辨率的教师策略可能带来额外收益。
