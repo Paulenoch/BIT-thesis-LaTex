@@ -1,6 +1,9 @@
 # BIT-thesis-LaTex
 LaTeX Template for BIT thesis
 
+### 当前论文项目迁移与环境恢复
+- 新电脑继续写这篇论文时，优先参考项目级指南：[docs/latex_env_setup.md](/Users/yingte.dai/thesis/BIT-thesis-LaTex/docs/latex_env_setup.md)
+
 LaTeX 论文写作填坑/拓展指南 & 模板简介可参考Helper_manual/Helper_manual.pdf,**欢迎补充完善**。。。该模板基于项目<https://github.com/BIT-thesis/LaTeX-template>修改，以下模板使用说明也基于该项目README.md。
 
 ### [环境安装与配置](https://github.com/BIT-thesis/LaTeX-template) 

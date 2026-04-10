@@ -861,13 +861,13 @@ Trees环境不参与任何训练数据的生成，
 
 本文评测中每个配置进行10次独立试验（固定种子但不同初始位置），
 报告均值$\pm$标准差。
-本文以工程可审计的重复试验与效应量对比为主，报告均值$\pm$std；由于主要对比（如0\% vs 90\%）的效应量远超统计噪声，故未进行额外的显著性检验。
+本文以工程可审计的重复试验与效应量对比为主，报告均值$\pm$std；对比差异呈数量级提升或下降，已明显超过重复试验波动范围，本文因此以均值$\pm$std与可审计复现实验为主，未额外进行显著性检验。
 采用这一方案的原因在于：
 
 \begin{enumerate}
   \item 样本量限制：每档仅10次试验，
     样本量不满足正态性假设的可靠性要求；
- \item 效应量显著：本文的主要对比（如KeepState vs ResetState的碰撞率差异为$0\%$对$90\%$）效应量远超统计噪声；
+ \item 效应量呈数量级差异：本文的主要对比（如KeepState vs ResetState的碰撞率差异为$2.72\%$对$90.0\%$）大幅超过重复试验波动范围；
      \item 标准差的信息量：标准差直接反映策略行为的稳定性，
     是衡量工程部署可靠性的关键指标——高标准差意味着策略行为不可预测，
     即使均值尚可，
@@ -918,7 +918,7 @@ LSD-SLAM\cite{Engel2014LSDSLAM} 探索了直接法在大尺度环境下的应用
 而 VINS-Mono\cite{Qin2018VINSMONO} 则通过视觉惯性紧耦合显著提升了鲁棒性。
 Cadena 等\cite{Cadena2016SLAMSurvey} 的综述文章系统总结了 SLAM 技术从滤波器时代迈向鲁棒感知时代的演进历程。
 在规划与控制层面，
-基于梯度的轨迹优化（如 Minimum Snap\cite{Mellinger2011MinSnapTrajectory} 及其多项式扩展\cite{Richter2016MinSnapPoly}）与基于采样的 RRT*\cite{Karaman2011SamplingOptimal} 构成了经典理论基础；
+基于梯度的轨迹优化（如 Minimum Snap\cite{Mellinger2011MinSnapTrajectory} 及其多项式扩展\cite{Richter2016MinSnapPoly}）与 Karaman 和 Frazzoli\cite{Karaman2011SamplingOptimal} 提出的 RRT* 等渐进最优随机采样算法构成了经典理论基础，前者为确定性最优轨迹生成提供了高效的解析框架，后者则为复杂构型空间中的全局路径搜索建立了概率完备性与渐进最优性的理论保证；
 非线性模型预测控制（NMPC）\cite{Kamel2017NMPC,Neunert2016MPC_Quadrotor} 则进一步提升了四旋翼在动态约束下的轨迹跟踪性能。
 
 国内学者在该领域亦做出了系统性贡献。
@@ -927,6 +927,7 @@ Cadena 等\cite{Cadena2016SLAMSurvey} 的综述文章系统总结了 SLAM 技术
 在轨迹规划领域，
 Zhou 等提出的 Fast-Planner\cite{Zhou2019FastPlanner} 及其后续 EGO-Planner\cite{Zhou2021EGOPlanner} 代表了显著的技术跨越：
 后者成功移除了对欧几里得符号距离场（ESDF）的依赖，通过直接计算障碍点云的碰撞梯度，将规划效率提升了一个数量级。
+针对未知环境下的高速飞行场景，Tordesillas等\cite{Faust2018FASTER}提出的FASTER框架在已知与未知空间中同时优化轨迹，并通过维护安全回退轨迹保证任意时刻的碰撞安全性，代表了传统规划方法在兼顾高速性与安全约束方面的重要进展。
 此外，何承坤等\cite{He2021QuadTrajectory} 对比了多项式优化与 B 样条技术在实时性上的折中，
 张涛等\cite{Zhang2020AutoPilotSurvey} 与刘小雄等\cite{Liu2020QuadControl} 的综述文章则从系统架构层面指出，
 尽管模块化方法在结构化场景中表现成熟，
